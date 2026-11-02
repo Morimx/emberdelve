@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_enemy")
 id = &"skeleton"
-display_name = "Esqueleto"
+display_name = "Skeleton"
 color = Color(0.9, 0.86, 0.75, 1)
 max_hp = 110
 attack = 10

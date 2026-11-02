@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_boon")
 id = &"blood_edge"
-display_name = "Filo sangriento"
-description = "El grupo recupera el 15% del daño que hace."
+display_name = "Blood Edge"
+description = "The party heals for 15% of the damage it deals."
 stat = &"lifesteal"
 value = 0.15

@@ -6,6 +6,6 @@
 script = ExtResource("1_boon")
 id = &"vigor"
 display_name = "Vigor"
-description = "+20% de vida máxima."
+description = "+20% max health."
 stat = &"max_hp_pct"
 value = 0.2

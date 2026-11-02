@@ -5,7 +5,10 @@ extends RefCounted
 
 signal torch_changed(value: int)
 signal ended(outcome: StringName, kept: Dictionary)
+## Estado estable entre salas: buen momento para autoguardar.
+signal checkpoint()
 
+const RUN_VERSION := 1
 const STEPS := 9
 const ROOMS_PER_FLOOR := 4
 const TORCH_COST := {&"combat": 1, &"elite": 2, &"event": 1, &"camp": 1, &"boss": 1}
@@ -15,6 +18,7 @@ const SUPPLIES_TORCH := 2
 const DOOR_WEIGHTS := {&"combat": 3.0, &"elite": 1.0, &"event": 2.0}
 
 var rng := RandomNumberGenerator.new()
+var run_id := ""
 var party: Array[Unit] = []
 var torch: int
 var torch_max: int
@@ -37,6 +41,7 @@ var _boon_pool: Array[BoonData]
 
 func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int) -> void:
 	rng.seed = seed_value
+	run_id = str(seed_value)
 	_enemy_pool = enemy_pool
 	_boss = boss
 	_boon_pool = boons
@@ -59,9 +64,12 @@ func can_retreat() -> bool:
 	return not finished and pending_rewards.is_empty()
 
 
-## Resuelve una sala. Devuelve lo necesario para que la UI la muestre.
+## Resuelve una sala. Devuelve lo necesario para que la UI la muestre,
+## o {"error": ...} sin tocar el estado si la acción no es válida.
 func enter(kind: StringName) -> Dictionary:
-	assert(can_enter(kind), "No se puede entrar a %s" % kind)
+	if not can_enter(kind):
+		push_error("No se puede entrar a %s (paso %d, luz %d)." % [kind, step, torch])
+		return {"error": "You can't enter that room."}
 	_set_torch(torch - TORCH_COST[kind])
 	var result := {"kind": kind, "step": step}
 	step += 1
@@ -75,12 +83,16 @@ func enter(kind: StringName) -> Dictionary:
 			_set_torch(torch + CAMP_TORCH)
 			for u in party:
 				u.hp = mini(u.max_hp, maxi(u.hp, 1) + int(u.max_hp * CAMP_HEAL))
-			result["text"] = "Campamento: +%d de luz y el grupo se recupera." % CAMP_TORCH
+			result["text"] = "Camp: +%d light and the party recovers." % CAMP_TORCH
+	if not finished:
+		checkpoint.emit()
 	return result
 
 
-func choose_reward(index: int) -> void:
-	assert(index >= 0 and index < pending_rewards.size())
+func choose_reward(index: int) -> bool:
+	if finished or index < 0 or index >= pending_rewards.size():
+		push_error("Recompensa inválida: %d de %d." % [index, pending_rewards.size()])
+		return false
 	var reward: Dictionary = pending_rewards[index]
 	pending_rewards.clear()
 	match reward.kind:
@@ -92,17 +104,23 @@ func choose_reward(index: int) -> void:
 			_set_torch(torch + SUPPLIES_TORCH)
 			gold += reward.gold
 	_check_darkness()
+	if not finished:
+		checkpoint.emit()
+	return true
 
 
-func retreat() -> void:
-	assert(can_retreat())
+func retreat() -> bool:
+	if not can_retreat():
+		push_error("No se puede retirar ahora.")
+		return false
 	_finish(&"retreat")
+	return true
 
 
 func floor_label() -> String:
 	if step >= STEPS - 1:
-		return "Guarida del jefe"
-	return "Piso %d · Sala %d/%d" % [step / ROOMS_PER_FLOOR + 1, step % ROOMS_PER_FLOOR + 1, ROOMS_PER_FLOOR]
+		return "Boss lair"
+	return "Floor %d · Room %d/%d" % [step / ROOMS_PER_FLOOR + 1, step % ROOMS_PER_FLOOR + 1, ROOMS_PER_FLOOR]
 
 
 static func keep_ratio(result: StringName) -> float:
@@ -147,7 +165,7 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 				enemies.append(Unit.from_enemy(_random_enemy(), scale))
 		&"elite":
 			var elite := Unit.from_enemy(_random_enemy(), scale * 1.8)
-			elite.display_name += " élite"
+			elite.display_name = "Elite " + elite.display_name
 			enemies.append(elite)
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 		&"boss":
@@ -185,17 +203,17 @@ func _resolve_event(result: Dictionary) -> void:
 	match rng.randi_range(0, 2):
 		0:
 			_set_torch(torch + 1)
-			result["text"] = "Santuario: una llama azul aviva la antorcha (+1 de luz)."
+			result["text"] = "Shrine: a blue flame rekindles the torch (+1 light)."
 		1:
 			for u in party:
 				if u.is_alive():
 					u.hp = maxi(1, u.hp - int(u.max_hp * 0.15))
-			result["text"] = "Trampa: el grupo pierde un 15% de vida."
+			result["text"] = "Trap: the party loses 15% of its health."
 		2:
 			var item := Loot.roll_item(rng, step)
 			_add_item(item)
 			gold += 30
-			result["text"] = "Cofre olvidado: %s y 30 de oro." % item.describe()
+			result["text"] = "Forgotten chest: %s and 30 gold." % item.describe()
 
 
 func _roll_rewards(kind: StringName, depth: int) -> Array[Dictionary]:
@@ -221,7 +239,8 @@ func _add_item(item: ItemData) -> void:
 
 func _add_boon(boon: BoonData) -> void:
 	boons_taken.append(boon)
-	mods[boon.stat] = mods.get(boon.stat, 0.0) + boon.value
+	var key := String(boon.stat)
+	mods[key] = mods.get(key, 0.0) + boon.value
 	if boon.stat == &"max_hp_pct":
 		for u in party:
 			var extra := int(u.max_hp * boon.value)
@@ -247,6 +266,7 @@ func _finish(result: StringName) -> void:
 		"shards": int(shards * ratio),
 		"items": sorted_items.slice(0, int(items.size() * ratio)),
 		"steps": step,
+		"run_id": run_id,
 	}
 	ended.emit(outcome, kept)
 
@@ -258,3 +278,90 @@ func _set_torch(value: int) -> void:
 
 func _random_enemy() -> EnemyData:
 	return _enemy_pool[rng.randi_range(0, _enemy_pool.size() - 1)]
+
+
+# --- autoguardado --------------------------------------------------------------
+
+## Estado completo entre salas. Semilla y estado del RNG van como texto: son int64 y
+## JSON los pasaría a float perdiendo dígitos.
+func to_dict() -> Dictionary:
+	var party_data: Array = []
+	for u in party:
+		party_data.append({"id": String(u.id), "hp": u.hp, "max_hp": u.max_hp, "attack": u.attack, "defense": u.defense})
+	var plan_data: Array = []
+	for doors in plan:
+		plan_data.append(doors.map(func(k: StringName) -> String: return String(k)))
+	var pending_data: Array = []
+	for r in pending_rewards:
+		match r.kind:
+			&"item":
+				pending_data.append({"kind": "item", "item": r.item.to_dict()})
+			&"boon":
+				pending_data.append({"kind": "boon", "boon": String(r.boon.id)})
+			&"supplies":
+				pending_data.append({"kind": "supplies", "gold": r.gold})
+	return {
+		"version": RUN_VERSION, "run_id": run_id,
+		"seed": str(rng.seed), "rng_state": str(rng.state),
+		"torch": torch, "torch_max": torch_max, "step": step, "plan": plan_data,
+		"gold": gold, "shards": shards, "mods": mods.duplicate(),
+		"items": items.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
+		"boons": boons_taken.map(func(b: BoonData) -> String: return String(b.id)),
+		"party": party_data, "pending": pending_data,
+	}
+
+
+## Restaura un estado guardado con to_dict(). Devuelve false si no es compatible.
+func apply_state(d: Dictionary) -> bool:
+	if int(d.get("version", 0)) != RUN_VERSION or not (d.get("party") is Array):
+		return false
+	run_id = str(d.get("run_id", ""))
+	rng.seed = str(d.get("seed", "0")).to_int()
+	rng.state = str(d.get("rng_state", "0")).to_int()
+	torch = int(d.get("torch", 0))
+	torch_max = int(d.get("torch_max", torch))
+	step = int(d.get("step", 0))
+	gold = int(d.get("gold", 0))
+	shards = int(d.get("shards", 0))
+	plan.clear()
+	for doors in d.get("plan", []):
+		plan.append(doors.map(func(k: String) -> StringName: return StringName(k)))
+	mods.clear()
+	var saved_mods = d.get("mods", {})
+	if saved_mods is Dictionary:
+		for k in saved_mods:
+			mods[String(k)] = float(saved_mods[k])
+	items.clear()
+	for item_data in d.get("items", []):
+		items.append(ItemData.from_dict(item_data))
+	boons_taken.clear()
+	for id in d.get("boons", []):
+		var boon := _boon_by_id(id)
+		if boon != null:
+			boons_taken.append(boon)
+	for saved in d.party:
+		for u in party:
+			if String(u.id) == saved.get("id", ""):
+				u.max_hp = int(saved.get("max_hp", u.max_hp))
+				u.hp = clampi(int(saved.get("hp", u.hp)), 0, u.max_hp)
+				u.attack = int(saved.get("attack", u.attack))
+				u.defense = int(saved.get("defense", u.defense))
+	pending_rewards.clear()
+	for r in d.get("pending", []):
+		match str(r.get("kind", "")):
+			"item":
+				pending_rewards.append({"kind": &"item", "item": ItemData.from_dict(r.item)})
+			"boon":
+				var boon := _boon_by_id(r.get("boon", ""))
+				if boon != null:
+					pending_rewards.append({"kind": &"boon", "boon": boon})
+			"supplies":
+				pending_rewards.append({"kind": &"supplies", "gold": int(r.get("gold", 0))})
+	return plan.size() == STEPS and step < STEPS
+
+
+func _boon_by_id(id: String) -> BoonData:
+	for b in _boon_pool:
+		if String(b.id) == id:
+			return b
+	return null

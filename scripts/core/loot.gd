@@ -2,17 +2,17 @@ class_name Loot
 extends RefCounted
 ## Tabla de rarezas y generación procedural de objetos.
 
-const RARITY_NAMES: PackedStringArray = ["Común", "Poco común", "Raro", "Épico", "Legendario"]
+const RARITY_NAMES: PackedStringArray = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
 const RARITY_COLORS: Array[Color] = [
 	Color("9ea3b0"), Color("5fbf4a"), Color("4a8fe0"), Color("b065ec"), Color("f08a24"),
 ]
 const RARITY_WEIGHTS: PackedFloat32Array = [60.0, 25.0, 11.0, 3.5, 0.5]
 const SLOTS: Array[StringName] = [&"weapon", &"armor", &"charm"]
-const SLOT_NAMES := {&"weapon": "Arma", &"armor": "Armadura", &"charm": "Amuleto"}
+const SLOT_NAMES := {&"weapon": "Weapon", &"armor": "Armor", &"charm": "Charm"}
 const BASE_NAMES := {
-	&"weapon": ["Espada", "Hacha", "Daga", "Maza"],
-	&"armor": ["Coraza", "Cota", "Capa", "Peto"],
-	&"charm": ["Amuleto", "Anillo", "Talismán", "Reliquia"],
+	&"weapon": ["Sword", "Axe", "Dagger", "Mace"],
+	&"armor": ["Breastplate", "Mail", "Cloak", "Cuirass"],
+	&"charm": ["Amulet", "Ring", "Talisman", "Relic"],
 }
 
 

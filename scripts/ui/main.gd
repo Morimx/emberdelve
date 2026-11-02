@@ -3,12 +3,12 @@ extends Control
 ## Toda la lógica vive en scripts/core; esta escena solo muestra y pregunta.
 
 const SPEEDS: Array[float] = [1.0, 2.0, 4.0]
-const DOOR_NAMES := {&"combat": "Combate", &"elite": "Élite", &"event": "Evento ?", &"camp": "Campamento", &"boss": "JEFE"}
+const DOOR_NAMES := {&"combat": "Combat", &"elite": "Elite", &"event": "Event ?", &"camp": "Camp", &"boss": "BOSS"}
 const OUTCOME_TEXT := {
-	&"victory": "¡Jefe derrotado!",
-	&"retreat": "Retirada a tiempo",
-	&"defeat": "El grupo cayó",
-	&"darkness": "Perdidos en la oscuridad",
+	&"victory": "Boss defeated!",
+	&"retreat": "Retreated in time",
+	&"defeat": "The party fell",
+	&"darkness": "Lost in the dark",
 }
 const BG := Color("0b0e1d")
 const PANEL := Color("161b36")
@@ -33,7 +33,15 @@ var _actions: HFlowContainer
 func _ready() -> void:
 	_build_ui()
 	meta = MetaState.load_from()
-	_show_camp("")
+	var resumed := RunStore.load_run(meta)
+	if resumed == null:
+		_show_camp(tr("This save comes from a newer version of the game and won't be modified.") if meta.newer_save else "")
+		return
+	_attach(resumed)
+	if expedition.pending_rewards.is_empty():
+		_show_doors(tr("Expedition restored: you're right where you left off."))
+	else:
+		_show_rewards()
 
 
 # --- pantallas ---------------------------------------------------------------
@@ -45,48 +53,47 @@ func _show_camp(message: String) -> void:
 	if message != "":
 		lines.append(message)
 		lines.append("")
-	lines.append("CAMPAMENTO  ·  Oro %d  ·  Esquirlas %d" % [meta.gold, meta.shards])
-	lines.append("Expediciones: %d  ·  Mejor sala alcanzada: %d/%d" % [meta.runs, meta.best_step, Expedition.STEPS])
-	lines.append("Ataque Nv %d  ·  Vida Nv %d  ·  Antorcha inicial %d" % [meta.attack_level, meta.hp_level, meta.torch_start()])
+	lines.append(tr("CAMP  ·  Gold %d  ·  Shards %d") % [meta.gold, meta.shards])
+	lines.append(tr("Expeditions: %d  ·  Deepest room: %d/%d") % [meta.runs, meta.best_step, Expedition.STEPS])
+	lines.append(tr("Attack Lv %d  ·  Health Lv %d  ·  Starting torch %d") % [meta.attack_level, meta.hp_level, meta.torch_start()])
 	for slot in Loot.SLOTS:
 		var item: ItemData = meta.equipped.get(slot)
-		lines.append("%s: %s" % [Loot.SLOT_NAMES[slot], item.describe() if item else "—"])
+		lines.append("%s: %s" % [tr(Loot.SLOT_NAMES[slot]), item.describe() if item else "—"])
 	_info.text = "\n".join(lines)
 
 	_clear_actions()
-	_add_action("Mejorar ataque +8%% (%d oro)" % meta.upgrade_cost(&"attack"), _on_upgrade.bind(&"attack"), not meta.can_upgrade(&"attack"))
-	_add_action("Mejorar vida +10%% (%d oro)" % meta.upgrade_cost(&"hp"), _on_upgrade.bind(&"hp"), not meta.can_upgrade(&"hp"))
+	_add_action(tr("Upgrade attack +8%% (%d gold)") % meta.upgrade_cost(&"attack"), _on_upgrade.bind(&"attack"), not meta.can_upgrade(&"attack"))
+	_add_action(tr("Upgrade health +10%% (%d gold)") % meta.upgrade_cost(&"hp"), _on_upgrade.bind(&"hp"), not meta.can_upgrade(&"hp"))
 	if meta.torch_level < MetaState.MAX_TORCH_LEVEL:
-		_add_action("Antorcha +1 (%d esquirlas)" % meta.upgrade_cost(&"torch"), _on_upgrade.bind(&"torch"), not meta.can_upgrade(&"torch"))
-	_add_action("▶ Nueva expedición", _start_expedition).modulate = TORCH
+		_add_action(tr("Torch +1 (%d shards)") % meta.upgrade_cost(&"torch"), _on_upgrade.bind(&"torch"), not meta.can_upgrade(&"torch"))
+	_add_action(tr("▶ New expedition"), _start_expedition).modulate = TORCH
 
 
 func _start_expedition() -> void:
-	expedition = GameData.new_expedition(meta, randi())
-	expedition.torch_changed.connect(func(_v: int) -> void: _update_hud())
-	expedition.ended.connect(_on_expedition_ended)
-	_show_doors("Entrás a las Catacumbas. Cada sala gasta luz: volvé antes de que se apague.")
+	_attach(GameData.new_expedition(meta, randi()))
+	_save_run()
+	_show_doors(tr("You enter the Catacombs. Every room burns light: get out before it goes dark."))
 
 
 func _show_doors(message: String) -> void:
 	_update_hud()
 	_show_party_only()
-	_info.text = message + "\n\nElegí la próxima puerta o retirate con todo el botín."
+	_info.text = tr(message) + "\n\n" + tr("Pick the next door, or retreat with all your loot.")
 	_clear_actions()
 	for kind: StringName in expedition.current_doors():
 		var cost: int = Expedition.TORCH_COST[kind]
-		var label := "%s  (−%d luz)" % [DOOR_NAMES[kind], cost]
+		var label := tr("%s  (−%d light)") % [tr(DOOR_NAMES[kind]), cost]
 		if kind == &"camp":
-			label = "Campamento  (−%d, +%d luz, cura)" % [cost, Expedition.CAMP_TORCH]
+			label = tr("Camp  (−%d, +%d light, heals)") % [cost, Expedition.CAMP_TORCH]
 		_add_action(label, _on_door.bind(kind), not expedition.can_enter(kind))
-	_add_action("⟲ Retirarse (100%% · %d oro, %d objetos)" % [expedition.gold, expedition.items.size()], _on_retreat).modulate = TORCH
+	_add_action(tr("⟲ Retreat (keep 100%% · %d gold, %d items)") % [expedition.gold, expedition.items.size()], _on_retreat).modulate = TORCH
 
 
 func _show_rewards() -> void:
 	_update_hud()
-	var text := "Sala superada. Elegí una recompensa."
+	var text := tr("Room cleared. Choose a reward.")
 	if expedition.torch <= 0:
-		text += "\n¡Sin luz! Si no elegís suministros, el grupo se pierde en la oscuridad (50%)."
+		text += "\n" + tr("Out of light! Unless you take supplies, the party gets lost in the dark (keep 50%).")
 	_info.text = text
 	_clear_actions()
 	for i in expedition.pending_rewards.size():
@@ -94,11 +101,11 @@ func _show_rewards() -> void:
 		var label := ""
 		match r.kind:
 			&"item":
-				label = "Objeto: %s\n(se conserva si volvés)" % r.item.describe()
+				label = tr("Item: %s\n(yours to keep if you make it back)") % r.item.describe()
 			&"boon":
-				label = "Bendición: %s\n%s (solo esta expedición)" % [r.boon.display_name, r.boon.description]
+				label = tr("Boon: %s\n%s (this expedition only)") % [tr(r.boon.display_name), tr(r.boon.description)]
 			&"supplies":
-				label = "Suministros: +%d luz, +%d oro" % [Expedition.SUPPLIES_TORCH, r.gold]
+				label = tr("Supplies: +%d light, +%d gold") % [Expedition.SUPPLIES_TORCH, r.gold]
 		var button := _add_action(label, _on_reward.bind(i))
 		if r.kind == &"item":
 			button.modulate = Loot.RARITY_COLORS[r.item.rarity].lightened(0.3)
@@ -110,20 +117,24 @@ func _show_result() -> void:
 	var kept := expedition.kept
 	var summary := meta.apply_run(kept)
 	var err := meta.save()
+	# Primero se cobra (save del progreso con last_run_id) y recién después se borra el
+	# autoguardado: si se corta en el medio, load_run lo reconoce como cobrado.
+	if err == OK:
+		RunStore.clear()
 	var lines: PackedStringArray = [
-		"%s — conservás el %d%%" % [OUTCOME_TEXT[expedition.outcome], int(kept.ratio * 100)],
-		"Salas: %d/%d  ·  Oro +%d  ·  Esquirlas +%d" % [kept.steps, Expedition.STEPS, kept.gold, kept.shards],
-		"Objetos conservados: %d de %d" % [kept.items.size(), expedition.items.size()],
+		tr("%s — you keep %d%%") % [tr(OUTCOME_TEXT[expedition.outcome]), int(kept.ratio * 100)],
+		tr("Rooms: %d/%d  ·  Gold +%d  ·  Shards +%d") % [kept.steps, Expedition.STEPS, kept.gold, kept.shards],
+		tr("Items kept: %d of %d") % [kept.items.size(), expedition.items.size()],
 	]
 	for item: ItemData in summary.equipped:
-		lines.append("Equipado: " + item.describe())
+		lines.append(tr("Equipped: %s") % item.describe())
 	if summary.salvage > 0:
-		lines.append("Desguazado: +%d oro" % summary.salvage)
+		lines.append(tr("Salvaged: +%d gold") % summary.salvage)
 	if err != OK:
-		lines.append("(No se pudo guardar: %s)" % error_string(err))
+		lines.append(tr("(Couldn't save: %s)") % error_string(err))
 	_info.text = "\n".join(lines)
 	_clear_actions()
-	_add_action("Volver al campamento", func() -> void: _show_camp(""))
+	_add_action(tr("Back to camp"), func() -> void: _show_camp(""))
 
 
 # --- acciones ----------------------------------------------------------------
@@ -134,9 +145,25 @@ func _on_upgrade(kind: StringName) -> void:
 	_show_camp("")
 
 
+func _attach(ex: Expedition) -> void:
+	expedition = ex
+	expedition.torch_changed.connect(func(_v: int) -> void: _update_hud())
+	expedition.checkpoint.connect(_save_run)
+	expedition.ended.connect(_on_expedition_ended)
+
+
+func _save_run() -> void:
+	var err := RunStore.save_run(expedition)
+	if err != OK:
+		push_warning("No se pudo autoguardar la expedición: %s" % error_string(err))
+
+
 func _on_door(kind: StringName) -> void:
 	_clear_actions()
 	var result := expedition.enter(kind)
+	if result.has("error"):
+		_show_doors(result.error)
+		return
 	if result.has("combat"):
 		await _play_combat(result)
 	if expedition.finished:
@@ -148,7 +175,8 @@ func _on_door(kind: StringName) -> void:
 
 
 func _on_reward(index: int) -> void:
-	expedition.choose_reward(index)
+	if not expedition.choose_reward(index):
+		return
 	if not expedition.finished:
 		_show_doors("")
 
@@ -174,9 +202,9 @@ func _play_combat(result: Dictionary) -> void:
 		_add_unit_view(u, _enemy_row, result.start_hp[u])
 	for u: Unit in result.party:
 		_add_unit_view(u, _party_row, result.start_hp.get(u, u.hp))
-	_info.text = DOOR_NAMES[result.kind] + "…"
+	_info.text = tr(DOOR_NAMES[result.kind]) + "…"
 	skipping = false
-	_add_action("Saltar ⏭", func() -> void: skipping = true)
+	_add_action(tr("Skip ⏭"), func() -> void: skipping = true)
 
 	var last_t := 0.0
 	for e: Dictionary in result.combat.events:
@@ -188,7 +216,7 @@ func _play_combat(result: Dictionary) -> void:
 		_apply_event(e)
 	for u: Unit in result.enemies + result.party:
 		_refresh_view(u, u.hp)
-	_info.text = "Victoria" if result.combat.won else "Derrota"
+	_info.text = tr("Victory") if result.combat.won else tr("Defeat")
 	await get_tree().create_timer(0.4 / SPEEDS[speed_index]).timeout
 	_actions.remove_meta("busy")
 
@@ -199,13 +227,13 @@ func _apply_event(e: Dictionary) -> void:
 			_refresh_view(e.dst, e.hp)
 			_flash(e.dst, Color(1, 0.4, 0.4) if not e.crit else Color(1, 0.85, 0.3))
 			if not skipping:
-				_info.text = "%s → %s  −%d%s" % [e.src.display_name, e.dst.display_name, e.amount, "  ¡CRÍTICO!" if e.crit else ""]
+				_info.text = "%s → %s  −%d%s" % [tr(e.src.display_name), tr(e.dst.display_name), e.amount, "  " + tr("CRITICAL!") if e.crit else ""]
 		"heal":
 			_refresh_view(e.dst, e.hp)
 			_flash(e.dst, Color(0.4, 1, 0.5))
 		"skill":
 			if not skipping:
-				_info.text = "%s usa %s" % [e.src.display_name, e.label]
+				_info.text = tr("%s uses %s") % [tr(e.src.display_name), tr(e.label)]
 		"death":
 			_refresh_view(e.dst, 0)
 
@@ -276,18 +304,18 @@ func _build_ui() -> void:
 
 
 func _update_hud() -> void:
-	_speed_button.text = "Velocidad x%d" % int(SPEEDS[speed_index])
+	_speed_button.text = tr("Speed x%d") % int(SPEEDS[speed_index])
 	if expedition == null or expedition.finished:
-		_step_label.text = "Torchbound · prototipo"
+		_step_label.text = tr("Torchbound · prototype")
 		_torch_label.text = ""
 		_gold_label.text = ""
 		return
-	_step_label.text = expedition.floor_label()
+	_step_label.text = tr(expedition.floor_label())
 	var bar := ""
 	for i in maxi(expedition.torch_max, expedition.torch):
 		bar += "■" if i < expedition.torch else "□"
-	_torch_label.text = "LUZ %s %d" % [bar, expedition.torch]
-	_gold_label.text = "Oro %d · Objetos %d · Bendiciones %d" % [expedition.gold, expedition.items.size(), expedition.boons_taken.size()]
+	_torch_label.text = tr("LIGHT %s %d") % [bar, expedition.torch]
+	_gold_label.text = tr("Gold %d · Items %d · Boons %d") % [expedition.gold, expedition.items.size(), expedition.boons_taken.size()]
 
 
 func _show_party_only() -> void:
@@ -301,7 +329,7 @@ func _show_party_only() -> void:
 func _add_unit_view(u: Unit, row: HBoxContainer, hp: int) -> void:
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_END
-	var name_label := _label(box, u.display_name)
+	var name_label := _label(box, tr(u.display_name))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var body := ColorRect.new()
 	body.color = u.color

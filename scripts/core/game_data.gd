@@ -42,3 +42,8 @@ static func boons() -> Array[BoonData]:
 
 static func new_expedition(meta: MetaState, seed_value: int) -> Expedition:
 	return Expedition.new(heroes(), enemies(), BOSS, boons(), meta.hero_bonus(), meta.torch_start(), seed_value)
+
+
+static func restore_expedition(data: Dictionary) -> Expedition:
+	var ex := Expedition.new(heroes(), enemies(), BOSS, boons(), {}, 0, 0)
+	return ex if ex.apply_state(data) else null

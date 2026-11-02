@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_boon")
 id = &"war_cry"
-display_name = "Grito de guerra"
-description = "+20% de ataque."
+display_name = "War Cry"
+description = "+20% attack."
 stat = &"attack_pct"
 value = 0.2

@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_boon")
 id = &"keen_eye"
-display_name = "Ojo certero"
-description = "+12% de probabilidad de crítico."
+display_name = "Keen Eye"
+description = "+12% critical hit chance."
 stat = &"crit_chance"
 value = 0.12

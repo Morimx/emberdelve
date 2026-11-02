@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_hero")
 id = &"warrior"
-display_name = "Guerrero"
+display_name = "Warrior"
 color = Color(0.72, 0.76, 0.86, 1)
 max_hp = 170
 attack = 12

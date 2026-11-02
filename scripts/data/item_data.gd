@@ -17,11 +17,11 @@ func power() -> int:
 func describe() -> String:
 	var parts: PackedStringArray = []
 	if attack > 0:
-		parts.append("+%d ATQ" % attack)
+		parts.append("+%d ATK" % attack)
 	if defense > 0:
 		parts.append("+%d DEF" % defense)
 	if max_hp > 0:
-		parts.append("+%d VIDA" % max_hp)
+		parts.append("+%d HP" % max_hp)
 	return "[%s] %s (%s)" % [Loot.RARITY_NAMES[rarity], display_name, ", ".join(parts)]
 
 

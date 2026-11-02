@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_enemy")
 id = &"slime"
-display_name = "Limo"
+display_name = "Slime"
 color = Color(0.37, 0.75, 0.29, 1)
 max_hp = 150
 attack = 7

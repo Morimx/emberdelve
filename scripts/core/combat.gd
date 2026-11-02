@@ -42,7 +42,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 						&"shield_wall":
 							shield_until = t + SHIELD_DURATION
 							shield_power = u.skill_power
-							events.append({"t": t, "type": "skill", "src": u, "label": "Muro de escudos"})
+							events.append({"t": t, "type": "skill", "src": u, "label": "Shield Wall"})
 							skill_timers[u] = u.skill_cooldown
 						&"heal":
 							var target := _most_wounded(party)
@@ -55,7 +55,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 								skill_timers[u] = u.skill_cooldown
 						&"backstab":
 							backstab[u] = true
-							events.append({"t": t, "type": "skill", "src": u, "label": "Puñalada"})
+							events.append({"t": t, "type": "skill", "src": u, "label": "Backstab"})
 							skill_timers[u] = u.skill_cooldown
 
 			attack_timers[u] -= TICK

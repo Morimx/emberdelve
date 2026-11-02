@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1_boon")
 id = &"stone_skin"
-display_name = "Piel de piedra"
-description = "+4 de defensa para todo el grupo."
+display_name = "Stone Skin"
+description = "+4 defense for the whole party."
 stat = &"defense"
 value = 4.0
