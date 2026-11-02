@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="BoonData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/boon_data.gd" id="1_boon"]
+
+[resource]
+script = ExtResource("1_boon")
+id = &"stone_skin"
+display_name = "Piel de piedra"
+description = "+4 de defensa para todo el grupo."
+stat = &"defense"
+value = 4.0

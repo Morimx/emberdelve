@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="HeroData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/hero_data.gd" id="1_hero"]
+
+[resource]
+script = ExtResource("1_hero")
+id = &"cleric"
+display_name = "Clériga"
+color = Color(0.95, 0.92, 0.8, 1)
+max_hp = 115
+attack = 8
+defense = 3
+speed = 0.9
+crit_chance = 0.05
+skill = &"heal"
+skill_cooldown = 5.0
+skill_power = 0.25
+front = false

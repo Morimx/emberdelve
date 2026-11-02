@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="HeroData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/hero_data.gd" id="1_hero"]
+
+[resource]
+script = ExtResource("1_hero")
+id = &"warrior"
+display_name = "Guerrero"
+color = Color(0.72, 0.76, 0.86, 1)
+max_hp = 170
+attack = 12
+defense = 6
+speed = 0.8
+crit_chance = 0.05
+skill = &"shield_wall"
+skill_cooldown = 8.0
+skill_power = 0.35
+front = true

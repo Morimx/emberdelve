@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"bat"
+display_name = "Murciélago"
+color = Color(0.55, 0.31, 0.82, 1)
+max_hp = 65
+attack = 8
+defense = 0
+speed = 1.4
+gold_reward = 6
+is_boss = false

@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="HeroData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/hero_data.gd" id="1_hero"]
+
+[resource]
+script = ExtResource("1_hero")
+id = &"assassin"
+display_name = "Asesino"
+color = Color(0.78, 0.26, 0.23, 1)
+max_hp = 105
+attack = 15
+defense = 2
+speed = 1.2
+crit_chance = 0.15
+skill = &"backstab"
+skill_cooldown = 6.0
+skill_power = 0
+front = false

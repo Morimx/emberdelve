@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"lich"
+display_name = "Liche"
+color = Color(0.69, 0.4, 0.93, 1)
+max_hp = 520
+attack = 17
+defense = 5
+speed = 0.7
+gold_reward = 80
+is_boss = true

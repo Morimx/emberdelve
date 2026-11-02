@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="BoonData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/boon_data.gd" id="1_boon"]
+
+[resource]
+script = ExtResource("1_boon")
+id = &"keen_eye"
+display_name = "Ojo certero"
+description = "+12% de probabilidad de crítico."
+stat = &"crit_chance"
+value = 0.12

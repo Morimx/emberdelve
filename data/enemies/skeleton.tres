@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"skeleton"
+display_name = "Esqueleto"
+color = Color(0.9, 0.86, 0.75, 1)
+max_hp = 110
+attack = 10
+defense = 3
+speed = 0.8
+gold_reward = 8
+is_boss = false

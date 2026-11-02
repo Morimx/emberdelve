@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="BoonData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/boon_data.gd" id="1_boon"]
+
+[resource]
+script = ExtResource("1_boon")
+id = &"blood_edge"
+display_name = "Filo sangriento"
+description = "El grupo recupera el 15% del daño que hace."
+stat = &"lifesteal"
+value = 0.15
