@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"keen_edge"
+display_name = "Keen Edge"
+description = "+4% critical chance per level."
+icon = &"weapon"
+branch = &"steel"
+pos = Vector2(0.28, 0.5)
+max_level = 3
+currency = &"gold"
+base_cost = 80
+cost_growth = 1.7
+stat = &"crit_chance"
+value = 0.04
+requires = Array[StringName]([&"vitality"])
+key = false

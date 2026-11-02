@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"scholar"
+display_name = "Scholar"
+description = "+10% experience per level."
+icon = &"cross"
+branch = &"fortune"
+pos = Vector2(0.58, 0.5)
+max_level = 5
+currency = &"gold"
+base_cost = 70
+cost_growth = 1.6
+stat = &"xp_pct"
+value = 0.1
+requires = Array[StringName]([&"prospector"])
+key = false

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"appraiser"
+display_name = "Appraiser"
+description = "+6% chance per level for loot one rarity higher."
+icon = &"gem"
+branch = &"fortune"
+pos = Vector2(0.42, 0.5)
+max_level = 5
+currency = &"gold"
+base_cost = 70
+cost_growth = 1.6
+stat = &"luck"
+value = 0.06
+requires = Array[StringName]([&"prospector"])
+key = false

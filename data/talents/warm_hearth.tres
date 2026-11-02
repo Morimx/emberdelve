@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"warm_hearth"
+display_name = "Warm Hearth"
+description = "Camps restore +1 extra light per level."
+icon = &"fire"
+branch = &"path"
+pos = Vector2(0.86, 0.5)
+max_level = 2
+currency = &"gold"
+base_cost = 90
+cost_growth = 1.8
+stat = &"camp_torch"
+value = 1.0
+requires = Array[StringName]([&"torchbearer"])
+key = false

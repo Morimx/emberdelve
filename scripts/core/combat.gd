@@ -17,14 +17,18 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 	var attack_timers := {}
 	var skill_timers := {}
 	var backstab := {}
-	for u in all:
-		attack_timers[u] = rng.randf_range(0.3, 1.0) / u.speed
-		skill_timers[u] = u.skill_cooldown
-
 	var atk_pct: float = mods.get("attack_pct", 0.0)
 	var def_bonus: int = int(mods.get("defense", 0))
 	var lifesteal: float = mods.get("lifesteal", 0.0)
 	var extra_crit: float = mods.get("crit_chance", 0.0)
+	var speed_mult: float = 1.0 + mods.get("speed_pct", 0.0)
+	var skill_mult: float = 1.0 + mods.get("skill_power_pct", 0.0)
+
+	var speeds := {}
+	for u in all:
+		speeds[u] = u.speed * (speed_mult if not u.is_enemy else 1.0)
+		attack_timers[u] = rng.randf_range(0.3, 1.0) / speeds[u]
+		skill_timers[u] = u.skill_cooldown
 	var shield_until := -1.0
 	var shield_power := 0.0
 
@@ -41,7 +45,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 					match u.skill:
 						&"shield_wall":
 							shield_until = t + SHIELD_DURATION
-							shield_power = u.skill_power
+							shield_power = minf(0.8, u.skill_power * skill_mult)
 							events.append({"t": t, "type": "skill", "src": u, "label": "Shield Wall"})
 							skill_timers[u] = u.skill_cooldown
 						&"heal":
@@ -49,7 +53,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 							if target == null:
 								skill_timers[u] = 0.5
 							else:
-								var amount := int(round(target.max_hp * u.skill_power))
+								var amount := int(round(target.max_hp * u.skill_power * skill_mult))
 								target.hp = mini(target.max_hp, target.hp + amount)
 								events.append({"t": t, "type": "heal", "src": u, "dst": target, "amount": amount, "hp": target.hp})
 								skill_timers[u] = u.skill_cooldown
@@ -61,7 +65,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 			attack_timers[u] -= TICK
 			if attack_timers[u] > 0.0:
 				continue
-			attack_timers[u] += 1.0 / u.speed
+			attack_timers[u] += 1.0 / speeds[u]
 
 			var foe := _pick_target(u, enemies if not u.is_enemy else party)
 			if foe == null:
@@ -73,7 +77,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 			if crit:
 				dmg *= 2.0
 			if backstab.get(u, false):
-				dmg *= 3.0
+				dmg *= 3.0 * skill_mult
 				backstab[u] = false
 			if not foe.is_enemy and t < shield_until:
 				dmg *= 1.0 - shield_power

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"relic_lore"
+display_name = "Relic Lore"
+description = "+15% skill power per level."
+icon = &"charm"
+branch = &"fortune"
+pos = Vector2(0.5, 0.28)
+max_level = 3
+currency = &"shards"
+base_cost = 5
+cost_growth = 1.8
+stat = &"skill_power_pct"
+value = 0.15
+requires = Array[StringName]([&"appraiser", &"scholar"])
+key = true

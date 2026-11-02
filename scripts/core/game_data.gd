@@ -19,6 +19,27 @@ const BOONS := [
 	preload("res://data/boons/keen_eye.tres"),
 	preload("res://data/boons/war_cry.tres"),
 	preload("res://data/boons/vigor.tres"),
+	preload("res://data/boons/swift_blades.tres"),
+	preload("res://data/boons/hallowed.tres"),
+	preload("res://data/boons/second_wind.tres"),
+	preload("res://data/boons/oil_flask.tres"),
+]
+const TALENTS := [
+	preload("res://data/talents/ember.tres"),
+	preload("res://data/talents/might.tres"),
+	preload("res://data/talents/vitality.tres"),
+	preload("res://data/talents/bulwark.tres"),
+	preload("res://data/talents/keen_edge.tres"),
+	preload("res://data/talents/bloodthirst.tres"),
+	preload("res://data/talents/prospector.tres"),
+	preload("res://data/talents/appraiser.tres"),
+	preload("res://data/talents/scholar.tres"),
+	preload("res://data/talents/relic_lore.tres"),
+	preload("res://data/talents/torchbearer.tres"),
+	preload("res://data/talents/swift.tres"),
+	preload("res://data/talents/warm_hearth.tres"),
+	preload("res://data/talents/lantern.tres"),
+	preload("res://data/talents/undying_flame.tres"),
 ]
 
 
@@ -40,8 +61,15 @@ static func boons() -> Array[BoonData]:
 	return out
 
 
+static func talents() -> Array[TalentData]:
+	var out: Array[TalentData] = []
+	out.assign(TALENTS)
+	return out
+
+
 static func new_expedition(meta: MetaState, seed_value: int) -> Expedition:
-	return Expedition.new(heroes(), enemies(), BOSS, boons(), meta.hero_bonus(), meta.torch_start(), seed_value)
+	var catalog := talents()
+	return Expedition.new(heroes(), enemies(), BOSS, boons(), meta.hero_bonus(catalog), meta.torch_start(catalog), seed_value)
 
 
 static func restore_expedition(data: Dictionary) -> Expedition:

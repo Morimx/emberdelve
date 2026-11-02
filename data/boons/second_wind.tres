@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="BoonData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/boon_data.gd" id="1_boon"]
+
+[resource]
+script = ExtResource("1_boon")
+id = &"second_wind"
+display_name = "Second Wind"
+description = "Heal the party for 40% of max health."
+stat = &"heal_pct"
+value = 0.4

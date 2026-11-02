@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"bloodthirst"
+display_name = "Bloodthirst"
+description = "Heal for 5% of damage dealt, per level."
+icon = &"skull"
+branch = &"steel"
+pos = Vector2(0.2, 0.28)
+max_level = 2
+currency = &"shards"
+base_cost = 4
+cost_growth = 2.0
+stat = &"lifesteal"
+value = 0.05
+requires = Array[StringName]([&"bulwark", &"keen_edge"])
+key = true

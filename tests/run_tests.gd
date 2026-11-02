@@ -23,6 +23,12 @@ const TESTS: PackedStringArray = [
 	"test_run_roundtrip_resumes_identically",
 	"test_checkpoint_fires_between_rooms",
 	"test_collected_run_is_not_resumed",
+	"test_kills_grant_xp_and_levelups",
+	"test_levelup_blocks_doors_until_chosen",
+	"test_rest_reward_heals",
+	"test_talents_require_path_and_currency",
+	"test_talent_bonus_reaches_expedition",
+	"test_meta_migrates_upgrades_to_talents",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -149,7 +155,9 @@ func test_darkness_unless_supplies() -> bool:
 	var lost := _expedition(3, strong)
 	lost.torch = 1
 	lost.enter(&"combat")
-	_check(lost.torch == 0 and not lost.pending_rewards.is_empty(), "ganar con la última luz ofrece recompensa")
+	_check(lost.torch == 0 and not lost.pending_rewards.is_empty() and not lost.finished, "ganar con la última luz ofrece recompensa")
+	lost.pending_levelups = 0
+	lost.levelup_options.clear()
 	lost.choose_reward(0)
 	_check(lost.finished and lost.outcome == &"darkness", "sin luz y sin suministros: perdidos en la oscuridad")
 
@@ -220,7 +228,7 @@ func test_meta_save_roundtrip() -> bool:
 	SaveIO.remove(TMP)
 	var meta := MetaState.new()
 	meta.gold = 321
-	meta.torch_level = 2
+	meta.talents = {"ember": 1, "torchbearer": 2}
 	var item := ItemData.new()
 	item.slot = &"armor"
 	item.defense = 4
@@ -228,7 +236,7 @@ func test_meta_save_roundtrip() -> bool:
 	meta.equipped[&"armor"] = item
 	var err := meta.save(TMP)
 	var loaded := MetaState.load_from(TMP)
-	_check(err == OK and loaded.gold == 321 and loaded.torch_start() == MetaState.BASE_TORCH + 2 and loaded.equipped[&"armor"].defense == 4, "guardar y cargar conserva el progreso")
+	_check(err == OK and loaded.gold == 321 and loaded.torch_start(GameData.talents()) == MetaState.BASE_TORCH + 2 and loaded.equipped[&"armor"].defense == 4, "guardar y cargar conserva el progreso")
 	_check(not FileAccess.file_exists(TMP + ".tmp"), "no queda archivo temporal tras guardar")
 	return true
 
@@ -270,7 +278,10 @@ func test_newer_save_is_not_overwritten() -> bool:
 func test_run_roundtrip_resumes_identically() -> bool:
 	var original := _expedition(11, {"attack": 200, "max_hp": 2000})
 	original.enter(&"combat")
-	original.choose_reward(1)  # bendición
+	original._add_boon(GameData.BOONS[3])
+	original.pending_levelups = 0
+	original.levelup_options.clear()
+	original.choose_reward(1)  # suministros
 	original.party[1].hp = 33
 	var restored := GameData.restore_expedition(JSON.parse_string(JSON.stringify(original.to_dict())))
 	_check(restored != null, "la expedición guardada se puede restaurar")
@@ -288,6 +299,8 @@ func test_checkpoint_fires_between_rooms() -> bool:
 	var hits := [0]
 	ex.checkpoint.connect(func() -> void: hits[0] += 1)
 	ex.enter(&"combat")
+	ex.pending_levelups = 0
+	ex.levelup_options.clear()
 	ex.choose_reward(0)
 	_check(hits[0] == 2, "hay punto de autoguardado tras la sala y tras la recompensa")
 	return true
@@ -301,4 +314,81 @@ func test_collected_run_is_not_resumed() -> bool:
 	_check(RunStore.load_run(meta, TMP) != null, "una expedición sin cobrar se reanuda")
 	meta.last_run_id = ex.run_id
 	_check(RunStore.load_run(meta, TMP) == null and not FileAccess.file_exists(TMP), "una expedición ya cobrada se descarta")
+	return true
+
+
+# --- niveles y talentos ------------------------------------------------------------
+
+func test_kills_grant_xp_and_levelups() -> bool:
+	var ex := _expedition(5, {"attack": 200, "max_hp": 2000})
+	var result := ex.enter(&"combat")
+	_check(ex.level > 1 or ex.xp > 0, "matar enemigos da experiencia")
+	if ex.pending_levelups > 0:
+		_check(ex.levelup_options.size() == Expedition.LEVELUP_CHOICES, "cada subida de nivel ofrece 3 bendiciones")
+		var lvl_before := ex.pending_levelups
+		_check(ex.choose_levelup(0) and ex.pending_levelups == lvl_before - 1, "elegir una bendición consume la subida de nivel")
+	_check(result.get("xp", -1) >= 0, "el resultado del combate informa los niveles ganados")
+	return true
+
+
+func test_levelup_blocks_doors_until_chosen() -> bool:
+	var ex := _expedition(5, {"attack": 200, "max_hp": 2000})
+	ex.enter(&"combat")
+	ex.pending_rewards.clear()
+	ex._gain_xp(1000)
+	_check(not ex.can_retreat() and not ex.can_enter(ex.current_doors()[0]), "con una subida pendiente no se avanza ni se retira")
+	while ex.pending_levelups > 0:
+		ex.choose_levelup(0)
+	_check(ex.can_retreat(), "elegidas las bendiciones se puede seguir")
+	return true
+
+
+func test_rest_reward_heals() -> bool:
+	var ex := _expedition(5, {"attack": 200, "max_hp": 2000})
+	ex.enter(&"combat")
+	ex.pending_levelups = 0
+	ex.levelup_options.clear()
+	ex.party[0].hp = 10
+	var rest := -1
+	for i in ex.pending_rewards.size():
+		if ex.pending_rewards[i].kind == &"rest":
+			rest = i
+	_check(rest >= 0 and ex.choose_reward(rest) and ex.party[0].hp > 10, "descansar cura al grupo")
+	return true
+
+
+func test_talents_require_path_and_currency() -> bool:
+	var meta := MetaState.new()
+	var might: TalentData = GameData.TALENTS[1]
+	var ember: TalentData = GameData.TALENTS[0]
+	meta.gold = 1000
+	_check(not meta.can_buy(might), "un talento sin su requisito no se puede comprar")
+	_check(meta.buy(ember) and meta.can_buy(might), "comprar la raíz desbloquea las ramas")
+	meta.gold = 0
+	_check(not meta.can_buy(might), "sin oro no se compra")
+	meta.gold = 1000
+	for i in might.max_level:
+		meta.buy(might)
+	_check(meta.talent_level(might.id) == might.max_level and not meta.can_buy(might), "no se supera el nivel máximo")
+	return true
+
+
+func test_talent_bonus_reaches_expedition() -> bool:
+	var meta := MetaState.new()
+	meta.talents = {"ember": 1, "might": 2, "torchbearer": 1, "prospector": 1}
+	var bonus := meta.hero_bonus(GameData.talents())
+	var ex := GameData.new_expedition(meta, 3)
+	var base := Unit.from_hero(GameData.HEROES[0], {})
+	_check(is_equal_approx(bonus.attack_pct, 0.16) and ex.party[0].attack > base.attack, "Might sube el ataque de los héroes")
+	_check(ex.torch == MetaState.BASE_TORCH + 1, "Torchbearer suma luz inicial")
+	_check(is_equal_approx(ex._run_bonus.gold_pct, 0.1), "Prospector llega al oro de la expedición")
+	return true
+
+
+func test_meta_migrates_upgrades_to_talents() -> bool:
+	SaveIO.remove(TMP)
+	_write_raw(TMP, JSON.stringify({"version": 3, "gold": 5, "attack_level": 2, "hp_level": 1, "torch_level": 3}))
+	var loaded := MetaState.load_from(TMP)
+	_check(loaded.talent_level(&"might") == 2 and loaded.talent_level(&"vitality") == 1 and loaded.talent_level(&"torchbearer") == 3, "las mejoras viejas pasan a sus talentos")
+	_check(loaded.talent_level(&"ember") == 1 and loaded.torch_start(GameData.talents()) == MetaState.BASE_TORCH + 3, "la raíz queda comprada y la luz inicial se conserva")
 	return true

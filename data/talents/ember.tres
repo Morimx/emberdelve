@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"ember"
+display_name = "Ember Heart"
+description = "+5% max health for the whole party."
+icon = &"fire"
+branch = &"root"
+pos = Vector2(0.5, 0.9)
+max_level = 1
+currency = &"gold"
+base_cost = 25
+cost_growth = 1.0
+stat = &"max_hp_pct"
+value = 0.05
+requires = Array[StringName]([])
+key = true

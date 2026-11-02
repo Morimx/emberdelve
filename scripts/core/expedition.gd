@@ -8,14 +8,18 @@ signal ended(outcome: StringName, kept: Dictionary)
 ## Estado estable entre salas: buen momento para autoguardar.
 signal checkpoint()
 
-const RUN_VERSION := 1
+const RUN_VERSION := 2
 const STEPS := 9
 const ROOMS_PER_FLOOR := 4
 const TORCH_COST := {&"combat": 1, &"elite": 2, &"event": 1, &"camp": 1, &"boss": 1}
 const CAMP_TORCH := 3
 const CAMP_HEAL := 0.4
 const SUPPLIES_TORCH := 2
+const REST_HEAL := 0.3
 const DOOR_WEIGHTS := {&"combat": 3.0, &"elite": 1.0, &"event": 2.0}
+const LEVELUP_CHOICES := 3
+## Bonos de progreso permanente que afectan al combate (el resto ya está en las stats).
+const COMBAT_BONUS_KEYS: PackedStringArray = ["crit_chance", "lifesteal", "speed_pct", "skill_power_pct"]
 
 var rng := RandomNumberGenerator.new()
 var run_id := ""
@@ -30,6 +34,11 @@ var items: Array[ItemData] = []
 var boons_taken: Array[BoonData] = []
 var mods := {}
 var pending_rewards: Array[Dictionary] = []
+## Subida de nivel compartida por el grupo: cada nivel ofrece 1 de 3 bendiciones.
+var level := 1
+var xp := 0
+var pending_levelups := 0
+var levelup_options: Array[BoonData] = []
 var finished := false
 var outcome: StringName = &""
 var kept := {}
@@ -37,6 +46,8 @@ var kept := {}
 var _enemy_pool: Array[EnemyData]
 var _boss: EnemyData
 var _boon_pool: Array[BoonData]
+## gold_pct, xp_pct y luck del progreso permanente.
+var _run_bonus := {}
 
 
 func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int) -> void:
@@ -47,6 +58,11 @@ func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyDat
 	_boon_pool = boons
 	for h in heroes:
 		party.append(Unit.from_hero(h, hero_bonus))
+	for key in COMBAT_BONUS_KEYS:
+		if hero_bonus.get(key, 0.0) != 0.0:
+			mods[key] = float(hero_bonus[key])
+	for key in ["gold_pct", "xp_pct", "luck", "camp_torch"]:
+		_run_bonus[key] = float(hero_bonus.get(key, 0.0))
 	torch = torch_start
 	torch_max = torch_start
 	_generate_plan()
@@ -56,12 +72,36 @@ func current_doors() -> Array:
 	return plan[step] if step < plan.size() else []
 
 
+func has_pending_choice() -> bool:
+	return not pending_rewards.is_empty() or pending_levelups > 0
+
+
 func can_enter(kind: StringName) -> bool:
-	return not finished and pending_rewards.is_empty() and kind in current_doors() and torch >= TORCH_COST[kind]
+	return not finished and not has_pending_choice() and kind in current_doors() and torch >= TORCH_COST[kind]
 
 
 func can_retreat() -> bool:
-	return not finished and pending_rewards.is_empty()
+	return not finished and not has_pending_choice()
+
+
+func xp_to_next() -> int:
+	return 40 + 25 * (level - 1)
+
+
+## Elige una de las bendiciones ofrecidas por la subida de nivel.
+func choose_levelup(index: int) -> bool:
+	if finished or pending_levelups <= 0 or index < 0 or index >= levelup_options.size():
+		push_error("Subida de nivel inválida: %d de %d." % [index, levelup_options.size()])
+		return false
+	_add_boon(levelup_options[index])
+	pending_levelups -= 1
+	levelup_options.clear()
+	if pending_levelups > 0:
+		_roll_levelup_options()
+	_check_darkness()
+	if not finished:
+		checkpoint.emit()
+	return true
 
 
 ## Resuelve una sala. Devuelve lo necesario para que la UI la muestre,
@@ -80,7 +120,7 @@ func enter(kind: StringName) -> Dictionary:
 			_resolve_event(result)
 			_check_darkness()
 		&"camp":
-			_set_torch(torch + CAMP_TORCH)
+			_set_torch(torch + CAMP_TORCH + int(_run_bonus.get("camp_torch", 0.0)))
 			for u in party:
 				u.hp = mini(u.max_hp, maxi(u.hp, 1) + int(u.max_hp * CAMP_HEAL))
 			result["text"] = "Camp: +%d light and the party recovers." % CAMP_TORCH
@@ -103,6 +143,8 @@ func choose_reward(index: int) -> bool:
 		&"supplies":
 			_set_torch(torch + SUPPLIES_TORCH)
 			gold += reward.gold
+		&"rest":
+			_heal_party(REST_HEAL)
 	_check_darkness()
 	if not finished:
 		checkpoint.emit()
@@ -157,7 +199,7 @@ func _weighted_door(exclude: Array) -> StringName:
 
 func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	var depth := step - 1
-	var scale := 1.0 + 0.12 * depth
+	var scale := 1.0 + 0.2 * depth
 	var enemies: Array[Unit] = []
 	match kind:
 		&"combat":
@@ -188,15 +230,40 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	if not combat.won:
 		_finish(&"defeat")
 		return
+	var gained_xp := 0
 	for e in enemies:
-		gold += int(e.gold_reward * scale)
+		gold += int(e.gold_reward * scale * (1.0 + _run_bonus.get("gold_pct", 0.0)))
+		gained_xp += maxi(1, e.max_hp / 8)
 	if kind == &"elite":
 		shards += 1
 	if kind == &"boss":
 		shards += 3
 		_finish(&"victory")
 		return
+	result["xp"] = _gain_xp(int(gained_xp * (1.0 + _run_bonus.get("xp_pct", 0.0))))
 	pending_rewards = _roll_rewards(kind, depth)
+
+
+## Suma experiencia; devuelve cuántos niveles se subieron.
+func _gain_xp(amount: int) -> int:
+	xp += amount
+	var gained := 0
+	while xp >= xp_to_next():
+		xp -= xp_to_next()
+		level += 1
+		gained += 1
+	if gained > 0:
+		pending_levelups += gained
+		if levelup_options.is_empty():
+			_roll_levelup_options()
+	return gained
+
+
+func _roll_levelup_options() -> void:
+	var pool := _boon_pool.duplicate()
+	levelup_options.clear()
+	while levelup_options.size() < LEVELUP_CHOICES and not pool.is_empty():
+		levelup_options.append(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
 
 
 func _resolve_event(result: Dictionary) -> void:
@@ -219,12 +286,18 @@ func _resolve_event(result: Dictionary) -> void:
 func _roll_rewards(kind: StringName, depth: int) -> Array[Dictionary]:
 	var rewards: Array[Dictionary] = []
 	var luck := 1 if kind == &"elite" else 0
+	if rng.randf() < _run_bonus.get("luck", 0.0):
+		luck += 1
 	rewards.append({"kind": &"item", "item": Loot.roll_item(rng, depth, luck)})
-	var available := _boon_pool.filter(func(b: BoonData) -> bool: return b not in boons_taken)
-	if not available.is_empty():
-		rewards.append({"kind": &"boon", "boon": available[rng.randi_range(0, available.size() - 1)]})
-	rewards.append({"kind": &"supplies", "gold": 40 + 10 * depth})
+	rewards.append({"kind": &"supplies", "gold": int((40 + 10 * depth) * (1.0 + _run_bonus.get("gold_pct", 0.0)))})
+	rewards.append({"kind": &"rest"})
 	return rewards
+
+
+func _heal_party(fraction: float) -> void:
+	for u in party:
+		if u.is_alive():
+			u.hp = mini(u.max_hp, u.hp + int(u.max_hp * fraction))
 
 
 func _add_item(item: ItemData) -> void:
@@ -239,6 +312,14 @@ func _add_item(item: ItemData) -> void:
 
 func _add_boon(boon: BoonData) -> void:
 	boons_taken.append(boon)
+	# Efectos instantáneos: no quedan como modificador.
+	match boon.stat:
+		&"torch":
+			_set_torch(torch + int(boon.value))
+			return
+		&"heal_pct":
+			_heal_party(boon.value)
+			return
 	var key := String(boon.stat)
 	mods[key] = mods.get(key, 0.0) + boon.value
 	if boon.stat == &"max_hp_pct":
@@ -250,7 +331,8 @@ func _add_boon(boon: BoonData) -> void:
 
 
 func _check_darkness() -> void:
-	if not finished and torch <= 0:
+	# Se evalúa cuando no quedan elecciones: una recompensa de luz todavía puede salvar.
+	if not finished and torch <= 0 and not has_pending_choice():
 		_finish(&"darkness")
 
 
@@ -300,6 +382,8 @@ func to_dict() -> Dictionary:
 				pending_data.append({"kind": "boon", "boon": String(r.boon.id)})
 			&"supplies":
 				pending_data.append({"kind": "supplies", "gold": r.gold})
+			&"rest":
+				pending_data.append({"kind": "rest"})
 	return {
 		"version": RUN_VERSION, "run_id": run_id,
 		"seed": str(rng.seed), "rng_state": str(rng.state),
@@ -308,13 +392,30 @@ func to_dict() -> Dictionary:
 		"items": items.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
 		"boons": boons_taken.map(func(b: BoonData) -> String: return String(b.id)),
 		"party": party_data, "pending": pending_data,
+		"level": level, "xp": xp, "pending_levelups": pending_levelups,
+		"levelup_options": levelup_options.map(func(b: BoonData) -> String: return String(b.id)),
+		"run_bonus": _run_bonus.duplicate(),
 	}
 
 
 ## Restaura un estado guardado con to_dict(). Devuelve false si no es compatible.
+## Acepta v1 (sin niveles): arranca en nivel 1.
 func apply_state(d: Dictionary) -> bool:
-	if int(d.get("version", 0)) != RUN_VERSION or not (d.get("party") is Array):
+	var version := int(d.get("version", 0))
+	if version < 1 or version > RUN_VERSION or not (d.get("party") is Array):
 		return false
+	level = int(d.get("level", 1))
+	xp = int(d.get("xp", 0))
+	pending_levelups = int(d.get("pending_levelups", 0))
+	levelup_options.clear()
+	for id in d.get("levelup_options", []):
+		var option := _boon_by_id(id)
+		if option != null:
+			levelup_options.append(option)
+	var saved_bonus = d.get("run_bonus", {})
+	if saved_bonus is Dictionary:
+		for k in saved_bonus:
+			_run_bonus[String(k)] = float(saved_bonus[k])
 	run_id = str(d.get("run_id", ""))
 	rng.seed = str(d.get("seed", "0")).to_int()
 	rng.state = str(d.get("rng_state", "0")).to_int()
@@ -357,6 +458,10 @@ func apply_state(d: Dictionary) -> bool:
 					pending_rewards.append({"kind": &"boon", "boon": boon})
 			"supplies":
 				pending_rewards.append({"kind": &"supplies", "gold": int(r.get("gold", 0))})
+			"rest":
+				pending_rewards.append({"kind": &"rest"})
+	if pending_levelups > 0 and levelup_options.is_empty():
+		_roll_levelup_options()
 	return plan.size() == STEPS and step < STEPS
 
 

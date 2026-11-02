@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"vitality"
+display_name = "Vitality"
+description = "+10% max health per level."
+icon = &"armor"
+branch = &"steel"
+pos = Vector2(0.28, 0.72)
+max_level = 5
+currency = &"gold"
+base_cost = 40
+cost_growth = 1.6
+stat = &"max_hp_pct"
+value = 0.1
+requires = Array[StringName]([&"ember"])
+key = false

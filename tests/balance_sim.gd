@@ -9,8 +9,8 @@ const RUNS := 400
 func _initialize() -> void:
 	for meta_level in [0, 3]:
 		var meta := MetaState.new()
-		meta.attack_level = meta_level
-		meta.hp_level = meta_level
+		if meta_level > 0:
+			meta.talents = {"ember": 1, "might": meta_level, "vitality": meta_level}
 		print("\n== Progreso permanente Nv %d ==" % meta_level)
 		for policy in [&"temerario", &"cauteloso"]:
 			_report(policy, _simulate(meta, policy))
@@ -22,6 +22,9 @@ func _simulate(meta: MetaState, policy: StringName) -> Dictionary:
 	for run in RUNS:
 		var ex := GameData.new_expedition(meta, 1000 + run)
 		while not ex.finished:
+			if ex.pending_levelups > 0:
+				ex.choose_levelup(0)
+				continue
 			if not ex.pending_rewards.is_empty():
 				ex.choose_reward(_pick_reward(ex, policy))
 				continue
@@ -60,7 +63,7 @@ func _pick_door(ex: Expedition) -> StringName:
 
 
 func _pick_reward(ex: Expedition, policy: StringName) -> int:
-	var want := &"supplies" if ex.torch <= 1 or (policy == &"cauteloso" and ex.torch <= 3) else &"boon"
+	var want := &"supplies" if ex.torch <= 1 or (policy == &"cauteloso" and ex.torch <= 3) else &"item"
 	for i in ex.pending_rewards.size():
 		if ex.pending_rewards[i].kind == want:
 			return i

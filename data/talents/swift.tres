@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"swift"
+display_name = "Swift"
+description = "+6% attack speed per level."
+icon = &"weapon"
+branch = &"path"
+pos = Vector2(0.7, 0.5)
+max_level = 3
+currency = &"gold"
+base_cost = 90
+cost_growth = 1.7
+stat = &"speed_pct"
+value = 0.06
+requires = Array[StringName]([&"torchbearer"])
+key = false

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"bulwark"
+display_name = "Bulwark"
+description = "+2 defense per level."
+icon = &"shield"
+branch = &"steel"
+pos = Vector2(0.12, 0.5)
+max_level = 3
+currency = &"gold"
+base_cost = 80
+cost_growth = 1.7
+stat = &"defense"
+value = 2.0
+requires = Array[StringName]([&"might"])
+key = false

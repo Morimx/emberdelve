@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TalentData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/talent_data.gd" id="1_talent"]
+
+[resource]
+script = ExtResource("1_talent")
+id = &"torchbearer"
+display_name = "Torchbearer"
+description = "+1 starting light per level."
+icon = &"torch"
+branch = &"path"
+pos = Vector2(0.78, 0.72)
+max_level = 3
+currency = &"shards"
+base_cost = 4
+cost_growth = 1.5
+stat = &"torch"
+value = 1.0
+requires = Array[StringName]([&"ember"])
+key = false

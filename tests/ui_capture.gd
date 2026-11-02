@@ -17,6 +17,11 @@ func _initialize() -> void:
 	root.add_child(main)
 	await _frames(10)
 	_shot("1_camp")
+	main._open_talents()
+	await _frames(10)
+	_shot("1b_talents")
+	main._close_talents()
+	await _frames(5)
 
 	main.speed_index = 1
 	main._start_expedition()
@@ -27,11 +32,15 @@ func _initialize() -> void:
 	await create_timer(1.4).timeout
 	_shot("3_combat")
 	var waited := 0.0
-	while main._actions.has_meta("busy") and waited < 30.0:
+	while main._cards.has_meta("busy") and waited < 30.0:
 		await create_timer(0.25).timeout
 		waited += 0.25
 	await _frames(10)
-	_shot("4_reward")
+	_shot("4_after_combat")
+	if main.expedition.pending_levelups > 0:
+		main._on_levelup(0)
+		await _frames(10)
+		_shot("5_reward")
 
 	main.queue_free()
 	await _frames(2)

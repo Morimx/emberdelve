@@ -4,20 +4,19 @@ extends RefCounted
 
 const SAVE_PATH := "user://save.json"
 ## v1: formato del prototipo inicial. v2: agrega last_run_id. v3: nombres de objetos en inglés.
-const SAVE_VERSION := 3
+## v4: las mejoras sueltas (ataque, vida, antorcha) pasan a la constelación de talentos.
+const SAVE_VERSION := 4
 const LEGACY_ITEM_NAMES := {
 	"Espada": "Sword", "Hacha": "Axe", "Daga": "Dagger", "Maza": "Mace",
 	"Coraza": "Breastplate", "Cota": "Mail", "Capa": "Cloak", "Peto": "Cuirass",
 	"Amuleto": "Amulet", "Anillo": "Ring", "Talismán": "Talisman", "Reliquia": "Relic",
 }
 const BASE_TORCH := 5
-const MAX_TORCH_LEVEL := 3
 
 var gold := 0
 var shards := 0
-var attack_level := 0
-var hp_level := 0
-var torch_level := 0
+## id de talento -> nivel comprado.
+var talents := {}
 var runs := 0
 var best_step := 0
 ## Última expedición ya cobrada; evita cobrarla dos veces si se reanuda su autoguardado.
@@ -28,46 +27,53 @@ var newer_save := false
 var equipped := {}
 
 
-func upgrade_cost(kind: StringName) -> int:
-	match kind:
-		&"attack":
-			return int(40 * pow(1.6, attack_level))
-		&"hp":
-			return int(40 * pow(1.6, hp_level))
-		&"torch":
-			return 4 * (torch_level + 1)
-	return 0
+func talent_level(id: StringName) -> int:
+	return int(talents.get(String(id), 0))
 
 
-func can_upgrade(kind: StringName) -> bool:
-	if kind == &"torch":
-		return torch_level < MAX_TORCH_LEVEL and shards >= upgrade_cost(kind)
-	return gold >= upgrade_cost(kind)
+## Desbloqueado si no tiene requisitos o si ya se compró alguno de ellos.
+func is_unlocked(t: TalentData) -> bool:
+	if t.requires.is_empty():
+		return true
+	for req in t.requires:
+		if talent_level(req) > 0:
+			return true
+	return false
 
 
-func upgrade(kind: StringName) -> bool:
-	if not can_upgrade(kind):
+func can_buy(t: TalentData) -> bool:
+	var lvl := talent_level(t.id)
+	if lvl >= t.max_level or not is_unlocked(t):
 		return false
-	var cost := upgrade_cost(kind)
-	match kind:
-		&"attack":
-			gold -= cost
-			attack_level += 1
-		&"hp":
-			gold -= cost
-			hp_level += 1
-		&"torch":
-			shards -= cost
-			torch_level += 1
+	var wallet := shards if t.currency == &"shards" else gold
+	return wallet >= t.cost(lvl)
+
+
+func buy(t: TalentData) -> bool:
+	if not can_buy(t):
+		return false
+	var cost := t.cost(talent_level(t.id))
+	if t.currency == &"shards":
+		shards -= cost
+	else:
+		gold -= cost
+	talents[String(t.id)] = talent_level(t.id) + 1
 	return true
 
 
-func torch_start() -> int:
-	return BASE_TORCH + torch_level
+func torch_start(catalog: Array[TalentData]) -> int:
+	return BASE_TORCH + int(hero_bonus(catalog).get("torch", 0.0))
 
 
-func hero_bonus() -> Dictionary:
-	var bonus := {"attack_pct": 0.08 * attack_level, "max_hp_pct": 0.10 * hp_level, "attack": 0, "defense": 0, "max_hp": 0}
+## Suma de talentos comprados y equipo. Las claves las leen Unit, Combat y Expedition.
+func hero_bonus(catalog: Array[TalentData]) -> Dictionary:
+	var bonus := {"attack": 0, "defense": 0, "max_hp": 0}
+	for t in catalog:
+		var lvl := talent_level(t.id)
+		if lvl > 0:
+			var key := String(t.stat)
+			bonus[key] = bonus.get(key, 0.0) + t.value * lvl
+	bonus.defense = int(bonus.defense)
 	for item: ItemData in equipped.values():
 		bonus.attack += item.attack
 		bonus.defense += item.defense
@@ -102,9 +108,8 @@ func to_dict() -> Dictionary:
 	for slot in equipped:
 		eq[String(slot)] = equipped[slot].to_dict()
 	return {
-		"version": SAVE_VERSION, "gold": gold, "shards": shards, "attack_level": attack_level,
-		"hp_level": hp_level, "torch_level": torch_level, "runs": runs,
-		"best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
+		"version": SAVE_VERSION, "gold": gold, "shards": shards, "talents": talents.duplicate(),
+		"runs": runs, "best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
 	}
 
 
@@ -122,6 +127,17 @@ static func migrate(d: Dictionary) -> Dictionary:
 					var old_name: String = eq[slot].get("display_name", "")
 					eq[slot]["display_name"] = LEGACY_ITEM_NAMES.get(old_name, old_name)
 		v = 3
+	if v < 4:
+		var migrated := {}
+		for pair in [["attack_level", "might"], ["hp_level", "vitality"], ["torch_level", "torchbearer"]]:
+			var lvl := int(d.get(pair[0], 0))
+			if lvl > 0:
+				migrated[pair[1]] = lvl
+			d.erase(pair[0])
+		if not migrated.is_empty():
+			migrated["ember"] = 1  # raíz: requisito de los tres nodos migrados
+		d["talents"] = migrated
+		v = 4
 	d["version"] = v
 	return d
 
@@ -130,9 +146,10 @@ static func from_dict(d: Dictionary) -> MetaState:
 	var m := MetaState.new()
 	m.gold = int(d.get("gold", 0))
 	m.shards = int(d.get("shards", 0))
-	m.attack_level = int(d.get("attack_level", 0))
-	m.hp_level = int(d.get("hp_level", 0))
-	m.torch_level = clampi(int(d.get("torch_level", 0)), 0, MAX_TORCH_LEVEL)
+	var saved_talents = d.get("talents", {})
+	if saved_talents is Dictionary:
+		for id in saved_talents:
+			m.talents[String(id)] = maxi(0, int(saved_talents[id]))
 	m.runs = int(d.get("runs", 0))
 	m.best_step = int(d.get("best_step", 0))
 	m.last_run_id = str(d.get("last_run_id", ""))
