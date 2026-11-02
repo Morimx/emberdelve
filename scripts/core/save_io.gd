@@ -32,6 +32,30 @@ static func load_json(path: String) -> Dictionary:
 	return {}
 
 
+## Carpetas de datos que usó el juego antes de fijar custom_user_dir_name = "Torchbound".
+const LEGACY_DIRS: PackedStringArray = ["Godot/app_userdata/Torchbound (prototipo)", "Godot/app_userdata/Torchbound (prototype)"]
+
+
+## Copia una sola vez el guardado de una carpeta vieja si la actual no tiene ninguno.
+## Solo en escritorio: en web nunca hubo otra carpeta. Devuelve true si importó algo.
+static func import_legacy(files: PackedStringArray) -> bool:
+	if OS.has_feature("web"):
+		return false
+	for f in files:
+		if FileAccess.file_exists("user://" + f):
+			return false
+	for dir in LEGACY_DIRS:
+		var base := OS.get_data_dir().path_join(dir)
+		var copied := false
+		for f in files:
+			var src := base.path_join(f)
+			if FileAccess.file_exists(src) and DirAccess.copy_absolute(src, ProjectSettings.globalize_path("user://" + f)) == OK:
+				copied = true
+		if copied:
+			return true
+	return false
+
+
 static func remove(path: String) -> void:
 	for p in [path, path + ".bak", path + ".tmp"]:
 		if FileAccess.file_exists(p):
