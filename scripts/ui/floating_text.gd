@@ -6,7 +6,8 @@ extends Label
 func popup(text_value: String, color: Color, big := false) -> void:
 	text = text_value
 	add_theme_color_override("font_color", color)
-	add_theme_font_size_override("font_size", 30 if big else 20)
+	add_theme_font_override("font", UiSkin.NUMBER_FONT)
+	add_theme_font_size_override("font_size", 24 if big else 16)
 	reset_size()
 	pivot_offset = size / 2.0
 	position -= size / 2.0

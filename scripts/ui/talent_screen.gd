@@ -78,6 +78,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 10)
 	side.add_child(box)
 	_wallet = Label.new()
+	_wallet.theme_type_variation = UiSkin.NUMBER_VARIATION
 	_wallet.add_theme_color_override("font_color", UiSkin.GOLD)
 	box.add_child(_wallet)
 	var head := HBoxContainer.new()
@@ -94,7 +95,8 @@ func _ready() -> void:
 	_detail_desc.add_theme_color_override("font_color", UiSkin.MUTED)
 	_detail_desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(_detail_desc)
-	_detail_level.add_theme_font_size_override("font_size", 18)
+	_detail_level.theme_type_variation = UiSkin.NUMBER_VARIATION
+	_detail_cost.theme_type_variation = UiSkin.NUMBER_VARIATION
 	box.add_child(_detail_level)
 	box.add_child(_detail_cost)
 	_buy.custom_minimum_size = Vector2(0, 44)
@@ -128,7 +130,7 @@ func _build_nodes() -> void:
 		b.pressed.connect(_on_node_pressed.bind(t))
 		var lvl := Label.new()
 		lvl.name = "Level"
-		lvl.add_theme_font_size_override("font_size", 13)
+		lvl.theme_type_variation = UiSkin.NUMBER_VARIATION
 		lvl.add_theme_constant_override("outline_size", 4)
 		lvl.position = Vector2(0, b.custom_minimum_size.y - 2)
 		lvl.size = Vector2(b.custom_minimum_size.x, 16)

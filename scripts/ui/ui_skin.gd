@@ -6,6 +6,10 @@ extends RefCounted
 const FONT_FILE := preload("res://assets/fonts/PixelifySans.ttf")
 ## Sin ligaduras: la de "fi" de la fuente se lee mal en pantalla.
 static var FONT: Font = _make_font()
+## Silkscreen (OFL) para números y etiquetas cortas: sus dígitos se distinguen bien
+## (en Pixelify Sans el 5 se confunde con la S). Nítida en múltiplos de 8 px.
+const NUMBER_FONT := preload("res://assets/fonts/silkscreen/Silkscreen-Regular.ttf")
+const NUMBER_VARIATION := &"NumberLabel"
 
 const INK := Color("07081a")
 const STONE := Color("1c2246")
@@ -92,6 +96,9 @@ static func make_theme() -> Theme:
 	t.default_font_size = 16
 	t.set_color("font_color", "Label", TEXT)
 	t.set_color("font_outline_color", "Label", INK)
+	t.set_type_variation(NUMBER_VARIATION, "Label")
+	t.set_font("font", NUMBER_VARIATION, NUMBER_FONT)
+	t.set_font_size("font_size", NUMBER_VARIATION, 16)
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		t.set_stylebox(state, "Button", button(state))
 	t.set_color("font_color", "Button", TEXT)

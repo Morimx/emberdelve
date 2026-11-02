@@ -35,5 +35,5 @@ show_percentage = false
 [node name="Hp" type="Label" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
+theme_type_variation = &"NumberLabel"
 horizontal_alignment = 1

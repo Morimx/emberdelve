@@ -409,7 +409,9 @@ func _build_ui() -> void:
 	_torch = TorchMeter.new()
 	hud.add_child(_torch)
 	_gold_label = _icon_label(hud, &"coin", UiSkin.GOLD)
-	_level_label = _label(hud, "", 15)
+	_as_number(_gold_label)
+	_level_label = _label(hud, "")
+	_as_number(_level_label)
 	_level_label.add_theme_color_override("font_color", BOON_COLOR.lightened(0.3))
 	_xp_bar = ProgressBar.new()
 	_xp_bar.custom_minimum_size = Vector2(90, 10)
@@ -584,6 +586,12 @@ func _label(parent: Node, text: String, font_size := 16) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	parent.add_child(label)
 	return label
+
+
+## Usa la fuente de números (Silkscreen) en lugar del tamaño fijo de _label.
+func _as_number(label: Label) -> void:
+	label.remove_theme_font_size_override("font_size")
+	label.theme_type_variation = UiSkin.NUMBER_VARIATION
 
 
 func _icon_label(parent: Node, icon_id: StringName, color: Color) -> Label:

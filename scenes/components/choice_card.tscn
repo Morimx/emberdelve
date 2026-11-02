@@ -49,8 +49,8 @@ vertical_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 0
+theme_type_variation = &"NumberLabel"
 theme_override_colors/font_color = Color(0.6, 0.63, 0.78, 1)
-theme_override_font_sizes/font_size = 14
 
 [node name="Body" type="Label" parent="Margin/Box"]
 unique_name_in_owner = true
@@ -63,5 +63,5 @@ autowrap_mode = 3
 [node name="Footer" type="Label" parent="Margin/Box"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 15
+theme_type_variation = &"NumberLabel"
 horizontal_alignment = 1
