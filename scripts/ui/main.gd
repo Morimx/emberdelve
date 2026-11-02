@@ -113,7 +113,7 @@ func _show_camp(message: String) -> void:
 	_info.text = "\n".join(lines)
 
 	_clear_actions()
-	_add_action(tr("▶ New expedition"), _start_expedition, false, SpriteBank.icon(&"door")).modulate = TORCH
+	_add_action(tr("New expedition"), _start_expedition, false, SpriteBank.icon(&"door")).modulate = TORCH
 	_add_action(tr("Attack +8%% (%d gold)") % meta.upgrade_cost(&"attack"), _on_upgrade.bind(&"attack"), not meta.can_upgrade(&"attack"), SpriteBank.icon(&"weapon"))
 	_add_action(tr("Health +10%% (%d gold)") % meta.upgrade_cost(&"hp"), _on_upgrade.bind(&"hp"), not meta.can_upgrade(&"hp"), SpriteBank.icon(&"armor"))
 	if meta.torch_level < MetaState.MAX_TORCH_LEVEL:
