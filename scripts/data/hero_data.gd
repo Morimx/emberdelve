@@ -13,6 +13,8 @@ extends Resource
 @export_range(0.0, 1.0) var crit_chance: float = 0.05
 ## Habilidad automática: &"shield_wall", &"heal" o &"backstab".
 @export var skill: StringName
+@export var skill_name: String
+@export_multiline var skill_description: String
 @export var skill_cooldown: float = 6.0
 @export var skill_power: float = 0.3
 ## Los héroes de vanguardia reciben los golpes primero.

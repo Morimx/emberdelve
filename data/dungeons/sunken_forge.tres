@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DungeonData" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/dungeon_data.gd" id="1_dungeon"]
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="2_enemy"]
+[ext_resource type="Resource" path="res://data/enemies/imp.tres" id="e1"]
+[ext_resource type="Resource" path="res://data/enemies/golem.tres" id="e2"]
+[ext_resource type="Resource" path="res://data/enemies/magma.tres" id="e3"]
+[ext_resource type="Resource" path="res://data/enemies/cultist.tres" id="e4"]
+[ext_resource type="Resource" path="res://data/enemies/iron_colossus.tres" id="b1"]
+
+[resource]
+script = ExtResource("1_dungeon")
+id = &"sunken_forge"
+display_name = "Sunken Forge"
+description = "Embers still burn below. Only the strongest return."
+enemies = Array[ExtResource("2_enemy")]([ExtResource("e1"), ExtResource("e2"), ExtResource("e3"), ExtResource("e4")])
+boss = ExtResource("b1")
+difficulty = 1.6
+boss_shards = 7
+unlock_after = &"flooded_crypt"
+wall_tint = Color(1.0, 0.65, 0.5, 1)
+floor_color = Color(0.16, 0.07, 0.06, 1)

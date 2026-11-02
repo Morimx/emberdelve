@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DungeonData" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/dungeon_data.gd" id="1_dungeon"]
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="2_enemy"]
+[ext_resource type="Resource" path="res://data/enemies/skeleton.tres" id="e1"]
+[ext_resource type="Resource" path="res://data/enemies/bat.tres" id="e2"]
+[ext_resource type="Resource" path="res://data/enemies/slime.tres" id="e3"]
+[ext_resource type="Resource" path="res://data/enemies/ghoul.tres" id="e4"]
+[ext_resource type="Resource" path="res://data/enemies/lich.tres" id="b1"]
+
+[resource]
+script = ExtResource("1_dungeon")
+id = &"catacombs"
+display_name = "Catacombs"
+description = "Bones, bats and slime. Where every delve begins."
+enemies = Array[ExtResource("2_enemy")]([ExtResource("e1"), ExtResource("e2"), ExtResource("e3"), ExtResource("e4")])
+boss = ExtResource("b1")
+difficulty = 1.0
+boss_shards = 3
+unlock_after = &""
+wall_tint = Color(0.8, 0.8, 0.95, 1)
+floor_color = Color(0.078, 0.102, 0.239, 1)

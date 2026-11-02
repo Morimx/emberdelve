@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"tide_wraith"
+display_name = "Tide Wraith"
+color = Color(1, 1, 1, 1)
+max_hp = 650
+attack = 18
+defense = 4
+speed = 0.8
+gold_reward = 120
+is_boss = true

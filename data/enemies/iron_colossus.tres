@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"iron_colossus"
+display_name = "Iron Colossus"
+color = Color(1, 1, 1, 1)
+max_hp = 800
+attack = 20
+defense = 10
+speed = 0.6
+gold_reward = 160
+is_boss = true

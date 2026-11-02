@@ -77,7 +77,7 @@ static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGener
 			if crit:
 				dmg *= 2.0
 			if backstab.get(u, false):
-				dmg *= 3.0 * skill_mult
+				dmg *= 3.0 * skill_mult * u.skill_power
 				backstab[u] = false
 			if not foe.is_enemy and t < shield_until:
 				dmg *= 1.0 - shield_power

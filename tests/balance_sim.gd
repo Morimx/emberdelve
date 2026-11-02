@@ -7,20 +7,23 @@ const RUNS := 400
 
 
 func _initialize() -> void:
-	for meta_level in [0, 3]:
+	# Cada mazmorra se prueba con el progreso que un jugador tendría al llegar a ella.
+	for setup in [[&"catacombs", 0], [&"catacombs", 3], [&"flooded_crypt", 3], [&"flooded_crypt", 5], [&"sunken_forge", 5]]:
 		var meta := MetaState.new()
-		if meta_level > 0:
-			meta.talents = {"ember": 1, "might": meta_level, "vitality": meta_level}
-		print("\n== Progreso permanente Nv %d ==" % meta_level)
+		var lvl: int = setup[1]
+		if lvl > 0:
+			meta.talents = {"ember": 1, "might": lvl, "vitality": lvl, "bulwark": mini(lvl, 3), "keen_edge": mini(lvl, 3)}
+			meta.skill_levels = {"warrior": mini(lvl, 5), "cleric": mini(lvl, 5), "assassin": mini(lvl, 5)}
+		print("\n== %s · progreso Nv %d ==" % [setup[0], lvl])
 		for policy in [&"temerario", &"cauteloso"]:
-			_report(policy, _simulate(meta, policy))
+			_report(policy, _simulate(meta, policy, setup[0]))
 	quit()
 
 
-func _simulate(meta: MetaState, policy: StringName) -> Dictionary:
+func _simulate(meta: MetaState, policy: StringName, dungeon: StringName) -> Dictionary:
 	var stats := {"victory": 0, "retreat": 0, "defeat": 0, "darkness": 0, "gold": 0, "steps": 0}
 	for run in RUNS:
-		var ex := GameData.new_expedition(meta, 1000 + run)
+		var ex := GameData.new_expedition(meta, 1000 + run, dungeon)
 		while not ex.finished:
 			if ex.pending_levelups > 0:
 				ex.choose_levelup(0)

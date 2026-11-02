@@ -12,7 +12,13 @@ const ENEMIES := [
 	preload("res://data/enemies/bat.tres"),
 	preload("res://data/enemies/slime.tres"),
 ]
+## Elenco de las Catacumbas; lo usan las pruebas y la simulación.
 const BOSS := preload("res://data/enemies/lich.tres")
+const DUNGEONS := [
+	preload("res://data/dungeons/catacombs.tres"),
+	preload("res://data/dungeons/flooded_crypt.tres"),
+	preload("res://data/dungeons/sunken_forge.tres"),
+]
 const BOONS := [
 	preload("res://data/boons/blood_edge.tres"),
 	preload("res://data/boons/stone_skin.tres"),
@@ -67,11 +73,26 @@ static func talents() -> Array[TalentData]:
 	return out
 
 
-static func new_expedition(meta: MetaState, seed_value: int) -> Expedition:
+static func dungeons() -> Array[DungeonData]:
+	var out: Array[DungeonData] = []
+	out.assign(DUNGEONS)
+	return out
+
+
+static func dungeon(id: StringName) -> DungeonData:
+	for d: DungeonData in DUNGEONS:
+		if d.id == id:
+			return d
+	return DUNGEONS[0]
+
+
+static func new_expedition(meta: MetaState, seed_value: int, dungeon_id: StringName = &"catacombs") -> Expedition:
 	var catalog := talents()
-	return Expedition.new(heroes(), enemies(), BOSS, boons(), meta.hero_bonus(catalog), meta.torch_start(catalog), seed_value)
+	var d := dungeon(dungeon_id)
+	return Expedition.new(heroes(), d.enemies, d.boss, boons(), meta.hero_bonus(catalog), meta.torch_start(catalog), seed_value, d.difficulty, d.id, d.boss_shards)
 
 
 static func restore_expedition(data: Dictionary) -> Expedition:
-	var ex := Expedition.new(heroes(), enemies(), BOSS, boons(), {}, 0, 0)
+	var d := dungeon(StringName(str(data.get("dungeon", "catacombs"))))
+	var ex := Expedition.new(heroes(), d.enemies, d.boss, boons(), {}, 0, 0, d.difficulty, d.id, d.boss_shards)
 	return ex if ex.apply_state(data) else null

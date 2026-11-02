@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"golem"
+display_name = "Golem"
+color = Color(1, 1, 1, 1)
+max_hp = 200
+attack = 11
+defense = 9
+speed = 0.5
+gold_reward = 12
+is_boss = false

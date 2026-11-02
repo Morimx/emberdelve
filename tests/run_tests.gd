@@ -29,6 +29,12 @@ const TESTS: PackedStringArray = [
 	"test_talents_require_path_and_currency",
 	"test_talent_bonus_reaches_expedition",
 	"test_meta_migrates_upgrades_to_talents",
+	"test_dungeons_unlock_in_order",
+	"test_harder_dungeon_scales_enemies",
+	"test_restore_keeps_dungeon",
+	"test_skill_levels_strengthen_heroes",
+	"test_stash_overflow_salvages_worst",
+	"test_meta_v5_migration",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -211,16 +217,19 @@ func test_rarity_distribution() -> bool:
 
 func test_meta_equips_better_items() -> bool:
 	var meta := MetaState.new()
-	var weak := ItemData.new()
-	weak.slot = &"weapon"
-	weak.attack = 2
-	var strong := ItemData.new()
-	strong.slot = &"weapon"
-	strong.attack = 9
-	strong.rarity = 2
-	var summary := meta.apply_run({"gold": 10, "items": [weak, strong], "steps": 4, "run_id": "abc"})
-	_check(meta.equipped[&"weapon"] == strong and summary.salvage > 0 and meta.best_step == 4, "el progreso equipa el mejor objeto y desguaza el resto")
-	_check(meta.last_run_id == "abc", "el progreso recuerda la última expedición cobrada")
+	var first := ItemData.new()
+	first.slot = &"weapon"
+	first.attack = 2
+	var second := ItemData.new()
+	second.slot = &"weapon"
+	second.attack = 9
+	second.rarity = 2
+	var summary := meta.apply_run({"gold": 10, "items": [first, second], "steps": 4, "run_id": "abc"})
+	_check(meta.equipped[&"weapon"] == first and meta.stash == [second] and summary.stashed == 1, "un slot vacío se equipa solo; el resto va al depósito")
+	_check(meta.equip_from_stash(0) and meta.equipped[&"weapon"] == second and meta.stash == [first], "equipar desde el depósito intercambia con el equipado")
+	var gold_before := meta.gold
+	_check(meta.salvage_from_stash(0) > 0 and meta.stash.is_empty() and meta.gold > gold_before, "desguazar da oro y vacía el lugar")
+	_check(meta.last_run_id == "abc" and meta.best_step == 4, "el progreso recuerda la última expedición cobrada")
 	return true
 
 
@@ -391,4 +400,67 @@ func test_meta_migrates_upgrades_to_talents() -> bool:
 	var loaded := MetaState.load_from(TMP)
 	_check(loaded.talent_level(&"might") == 2 and loaded.talent_level(&"vitality") == 1 and loaded.talent_level(&"torchbearer") == 3, "las mejoras viejas pasan a sus talentos")
 	_check(loaded.talent_level(&"ember") == 1 and loaded.torch_start(GameData.talents()) == MetaState.BASE_TORCH + 3, "la raíz queda comprada y la luz inicial se conserva")
+	return true
+
+
+# --- mazmorras, depósito y habilidades ------------------------------------------------
+
+func test_dungeons_unlock_in_order() -> bool:
+	var meta := MetaState.new()
+	var all := GameData.dungeons()
+	_check(meta.is_dungeon_unlocked(all[0]) and not meta.is_dungeon_unlocked(all[1]), "solo la primera mazmorra arranca abierta")
+	var summary := meta.apply_run({"outcome": "victory", "dungeon": "catacombs", "items": []})
+	_check(summary.first_clear and meta.is_dungeon_unlocked(all[1]) and not meta.is_dungeon_unlocked(all[2]), "vencer al jefe abre la siguiente")
+	meta.apply_run({"outcome": "retreat", "dungeon": "flooded_crypt", "items": []})
+	_check(not meta.is_dungeon_unlocked(all[2]), "retirarse no cuenta como vencer al jefe")
+	return true
+
+
+func test_harder_dungeon_scales_enemies() -> bool:
+	var meta := MetaState.new()
+	var easy := GameData.new_expedition(meta, 4, &"catacombs")
+	var hard := GameData.new_expedition(meta, 4, &"sunken_forge")
+	_check(hard.difficulty > easy.difficulty and hard.boss_shards > easy.boss_shards, "la mazmorra difícil escala enemigos y paga más esquirlas")
+	var r := hard.enter(&"combat")
+	_check(r.enemies[0].id in [&"imp", &"golem", &"magma", &"cultist"], "cada mazmorra usa su propio elenco")
+	return true
+
+
+func test_restore_keeps_dungeon() -> bool:
+	var ex := GameData.new_expedition(MetaState.new(), 8, &"flooded_crypt")
+	var restored := GameData.restore_expedition(JSON.parse_string(JSON.stringify(ex.to_dict())))
+	_check(restored != null and restored.dungeon_id == &"flooded_crypt" and is_equal_approx(restored.difficulty, ex.difficulty), "el autoguardado recuerda la mazmorra")
+	return true
+
+
+func test_skill_levels_strengthen_heroes() -> bool:
+	var meta := MetaState.new()
+	meta.shards = 100
+	var base := Unit.from_hero(GameData.HEROES[0], meta.hero_bonus(GameData.talents()))
+	_check(meta.upgrade_skill(&"warrior") and meta.skill_level(&"warrior") == 2, "mejorar una habilidad cuesta esquirlas y sube su nivel")
+	var better := Unit.from_hero(GameData.HEROES[0], meta.hero_bonus(GameData.talents()))
+	_check(better.skill_power > base.skill_power and better.skill_cooldown < base.skill_cooldown, "más nivel: más poder y menos enfriamiento")
+	meta.shards = 0
+	_check(not meta.can_upgrade_skill(&"warrior"), "sin esquirlas no se mejora")
+	return true
+
+
+func test_stash_overflow_salvages_worst() -> bool:
+	var meta := MetaState.new()
+	var items: Array = []
+	for i in MetaState.STASH_MAX + 4:
+		var it := ItemData.new()
+		it.slot = &"armor"
+		it.defense = i + 1
+		items.append(it)
+	var summary := meta.apply_run({"items": items})
+	_check(meta.stash.size() == MetaState.STASH_MAX and summary.salvage > 0, "con el depósito lleno se desguaza lo peor")
+	return true
+
+
+func test_meta_v5_migration() -> bool:
+	SaveIO.remove(TMP)
+	_write_raw(TMP, JSON.stringify({"version": 4, "gold": 3, "best_step": 9, "talents": {"ember": 1}}))
+	var loaded := MetaState.load_from(TMP)
+	_check(loaded.cleared.has("catacombs") and loaded.stash.is_empty() and loaded.skill_level(&"cleric") == 1, "v4 a v5: quien llegó al jefe tiene abierta la segunda mazmorra")
 	return true

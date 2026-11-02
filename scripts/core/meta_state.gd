@@ -5,7 +5,10 @@ extends RefCounted
 const SAVE_PATH := "user://save.json"
 ## v1: formato del prototipo inicial. v2: agrega last_run_id. v3: nombres de objetos en inglés.
 ## v4: las mejoras sueltas (ataque, vida, antorcha) pasan a la constelación de talentos.
-const SAVE_VERSION := 4
+## v5: mazmorras vencidas, depósito de objetos, niveles de habilidad y ajustes.
+const SAVE_VERSION := 5
+const STASH_MAX := 24
+const MAX_SKILL_LEVEL := 5
 const LEGACY_ITEM_NAMES := {
 	"Espada": "Sword", "Hacha": "Axe", "Daga": "Dagger", "Maza": "Mace",
 	"Coraza": "Breastplate", "Cota": "Mail", "Capa": "Cloak", "Peto": "Cuirass",
@@ -23,8 +26,78 @@ var best_step := 0
 var last_run_id := ""
 ## true si el guardado en disco es de una versión más nueva del juego: no se sobrescribe.
 var newer_save := false
-## slot -> ItemData. El mejor objeto de cada slot equipa a todo el grupo.
+## slot -> ItemData. El objeto de cada slot equipa a todo el grupo.
 var equipped := {}
+## Objetos conservados sin equipar; se equipan o desguazan en la armería.
+var stash: Array[ItemData] = []
+## id de mazmorra -> true cuando su jefe fue vencido.
+var cleared := {}
+## id de héroe -> nivel de su habilidad (1..MAX_SKILL_LEVEL).
+var skill_levels := {}
+var muted := false
+
+
+func is_dungeon_unlocked(d: DungeonData) -> bool:
+	return d.unlock_after == &"" or cleared.has(String(d.unlock_after))
+
+
+# --- habilidades -----------------------------------------------------------------
+
+func skill_level(hero_id: StringName) -> int:
+	return int(skill_levels.get(String(hero_id), 1))
+
+
+func skill_cost(hero_id: StringName) -> int:
+	return 3 * skill_level(hero_id)
+
+
+func can_upgrade_skill(hero_id: StringName) -> bool:
+	return skill_level(hero_id) < MAX_SKILL_LEVEL and shards >= skill_cost(hero_id)
+
+
+func upgrade_skill(hero_id: StringName) -> bool:
+	if not can_upgrade_skill(hero_id):
+		return false
+	shards -= skill_cost(hero_id)
+	skill_levels[String(hero_id)] = skill_level(hero_id) + 1
+	return true
+
+
+# --- armería ---------------------------------------------------------------------
+
+## Equipa el objeto del depósito; el que estaba en ese slot vuelve al depósito.
+func equip_from_stash(index: int) -> bool:
+	if index < 0 or index >= stash.size():
+		return false
+	var item := stash[index]
+	var previous: ItemData = equipped.get(item.slot)
+	equipped[item.slot] = item
+	stash.remove_at(index)
+	if previous != null:
+		stash.insert(index, previous)
+	return true
+
+
+func salvage_from_stash(index: int) -> int:
+	if index < 0 or index >= stash.size():
+		return 0
+	var value := salvage_value(stash[index])
+	stash.remove_at(index)
+	gold += value
+	return value
+
+
+## Desguaza todos los comunes del depósito. Devuelve el oro obtenido.
+func salvage_commons() -> int:
+	var total := 0
+	for i in range(stash.size() - 1, -1, -1):
+		if stash[i].rarity == 0:
+			total += salvage_from_stash(i)
+	return total
+
+
+func salvage_value(item: ItemData) -> int:
+	return 5 * (item.rarity + 1)
 
 
 func talent_level(id: StringName) -> int:
@@ -78,29 +151,40 @@ func hero_bonus(catalog: Array[TalentData]) -> Dictionary:
 		bonus.attack += item.attack
 		bonus.defense += item.defense
 		bonus.max_hp += item.max_hp
+	bonus["skill_levels"] = skill_levels.duplicate()
 	return bonus
 
 
-## Suma lo conservado. Los objetos peores que el equipado se desguazan en oro.
+## Suma lo conservado. Un objeto ocupa su slot si está vacío; si no, va al depósito.
+## Con el depósito lleno, el objeto de menor poder se desguaza en oro.
 func apply_run(kept: Dictionary) -> Dictionary:
 	runs += 1
 	last_run_id = kept.get("run_id", "")
 	best_step = maxi(best_step, int(kept.get("steps", 0)))
 	gold += int(kept.get("gold", 0))
 	shards += int(kept.get("shards", 0))
+	var first_clear := false
+	if kept.get("outcome", "") == "victory":
+		var dungeon := str(kept.get("dungeon", "catacombs"))
+		first_clear = not cleared.has(dungeon)
+		cleared[dungeon] = true
 	var equipped_now: Array[ItemData] = []
+	var stashed := 0
 	var salvage := 0
 	for item: ItemData in kept.get("items", []):
-		var current: ItemData = equipped.get(item.slot)
-		if current == null or item.power() > current.power():
-			if current != null:
-				salvage += _salvage_value(current)
+		if equipped.get(item.slot) == null:
 			equipped[item.slot] = item
 			equipped_now.append(item)
 		else:
-			salvage += _salvage_value(item)
-	gold += salvage
-	return {"equipped": equipped_now, "salvage": salvage}
+			stash.append(item)
+			stashed += 1
+	while stash.size() > STASH_MAX:
+		var worst := 0
+		for i in stash.size():
+			if stash[i].power() < stash[worst].power():
+				worst = i
+		salvage += salvage_from_stash(worst)
+	return {"equipped": equipped_now, "stashed": stashed, "salvage": salvage, "first_clear": first_clear}
 
 
 func to_dict() -> Dictionary:
@@ -110,6 +194,9 @@ func to_dict() -> Dictionary:
 	return {
 		"version": SAVE_VERSION, "gold": gold, "shards": shards, "talents": talents.duplicate(),
 		"runs": runs, "best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
+		"stash": stash.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
+		"cleared": cleared.duplicate(), "skill_levels": skill_levels.duplicate(),
+		"settings": {"muted": muted},
 	}
 
 
@@ -138,6 +225,13 @@ static func migrate(d: Dictionary) -> Dictionary:
 			migrated["ember"] = 1  # raíz: requisito de los tres nodos migrados
 		d["talents"] = migrated
 		v = 4
+	if v < 5:
+		# Antes, vencer al jefe no se registraba: si alguien llegó a la sala final de las
+		# Catacumbas, se lo considera vencido para no bloquearle la segunda mazmorra.
+		d["cleared"] = {"catacombs": true} if int(d.get("best_step", 0)) >= 9 else {}
+		d["stash"] = []
+		d["skill_levels"] = {}
+		v = 5
 	d["version"] = v
 	return d
 
@@ -158,6 +252,20 @@ static func from_dict(d: Dictionary) -> MetaState:
 		for slot in eq:
 			if eq[slot] is Dictionary:
 				m.equipped[StringName(slot)] = ItemData.from_dict(eq[slot])
+	for item_data in d.get("stash", []):
+		if item_data is Dictionary:
+			m.stash.append(ItemData.from_dict(item_data))
+	var saved_cleared = d.get("cleared", {})
+	if saved_cleared is Dictionary:
+		for id in saved_cleared:
+			m.cleared[String(id)] = true
+	var saved_skills = d.get("skill_levels", {})
+	if saved_skills is Dictionary:
+		for id in saved_skills:
+			m.skill_levels[String(id)] = clampi(int(saved_skills[id]), 1, MAX_SKILL_LEVEL)
+	var settings = d.get("settings", {})
+	if settings is Dictionary:
+		m.muted = bool(settings.get("muted", false))
 	return m
 
 
@@ -178,6 +286,3 @@ static func load_from(path: String = SAVE_PATH) -> MetaState:
 		return fresh
 	return from_dict(migrate(data))
 
-
-func _salvage_value(item: ItemData) -> int:
-	return 5 * (item.rarity + 1)

@@ -22,6 +22,17 @@ func _initialize() -> void:
 	_shot("1b_talents")
 	main._close_talents()
 	await _frames(5)
+	main._open_armory()
+	await _frames(10)
+	_shot("1c_armory")
+	main._close_armory(main._overlay)
+	await _frames(5)
+	main._show_skills()
+	await _frames(5)
+	_shot("1d_skills")
+	main._show_dungeon_select()
+	await _frames(5)
+	_shot("1e_dungeons")
 
 	main.speed_index = 1
 	main._start_expedition()

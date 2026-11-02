@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"crab"
+display_name = "Crypt Crab"
+color = Color(1, 1, 1, 1)
+max_hp = 120
+attack = 8
+defense = 8
+speed = 0.7
+gold_reward = 9
+is_boss = false

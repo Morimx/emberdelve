@@ -39,6 +39,12 @@ var unit_views := {}
 var trauma := 0.0
 var _shake_t := 0.0
 var _talents: TalentScreen
+## Se ofreció un anuncio recompensado al terminar la expedición: entonces no se pide un
+## midgame antes de la siguiente (regla de CrazyGames: no ambos entre los mismos niveles).
+var _rewarded_offered := false
+var _mute_button: Button
+## Pantalla superpuesta abierta (armería); bloquea las teclas 1-9 del panel de cartas.
+var _overlay: Control
 
 var _step_label: Label
 var _torch: TorchMeter
@@ -62,6 +68,8 @@ func _ready() -> void:
 	_build_ui()
 	SaveIO.import_legacy(["save.json", "save.json.bak", "run.json", "run.json.bak"])
 	meta = MetaState.load_from()
+	Audio.set_muted(meta.muted)
+	_update_hud()
 	var resumed := RunStore.load_run(meta)
 	if resumed == null:
 		_show_camp(tr("This save comes from a newer version of the game and won't be modified.") if meta.newer_save else "")
@@ -85,7 +93,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Teclas 1-9: eligen la carta en esa posición; S cambia la velocidad.
 	# Enter/Espacio y las flechas usan el foco normal de Godot.
 	var key := event as InputEventKey
-	if key == null or not key.pressed or key.echo or _talents != null:
+	if key == null or not key.pressed or key.echo or _talents != null or _overlay != null:
 		return
 	if key.keycode >= KEY_1 and key.keycode <= KEY_9:
 		var buttons := _choice_buttons()
@@ -96,6 +104,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif key.keycode == KEY_S:
 		_on_speed()
 		get_viewport().set_input_as_handled()
+	elif key.keycode == KEY_M:
+		_toggle_mute()
+		get_viewport().set_input_as_handled()
 
 
 # --- pantallas ---------------------------------------------------------------
@@ -104,6 +115,10 @@ func _show_camp(message: String) -> void:
 	expedition = null
 	_clear_arena()
 	_update_hud()
+	Audio.play_music(&"camp")
+	Platform.gameplay_stop()
+	var home := GameData.dungeon(&"catacombs")
+	_backdrop.set_palette(home.wall_tint, home.floor_color)
 	_backdrop.set_campfire(true)
 	_backdrop.set_light(1.0)
 	var catalog := GameData.talents()
@@ -112,26 +127,65 @@ func _show_camp(message: String) -> void:
 		_add_unit_view(u, _party_row, u.hp)
 	_set_text(tr("Camp"), message if message != "" else tr("Gold %d  ·  Shards %d  ·  Expeditions %d  ·  Deepest room %d/%d") % [meta.gold, meta.shards, meta.runs, meta.best_step, Expedition.STEPS])
 	_clear_cards()
-	_add_card(SpriteBank.icon(&"door"), tr("Descend"), tr("Start a new expedition with %d light.") % meta.torch_start(catalog), tr("Begin"), UiSkin.TORCH, _start_expedition)
+	var open_count := 0
+	for d in GameData.dungeons():
+		if meta.is_dungeon_unlocked(d):
+			open_count += 1
+	_add_card(SpriteBank.icon(&"door"), tr("Descend"), tr("Choose a dungeon. You start with %d light.") % meta.torch_start(catalog), tr("%d of %d open") % [open_count, GameData.DUNGEONS.size()], UiSkin.TORCH, _show_dungeon_select)
 	var affordable := 0
 	for t in catalog:
 		if meta.can_buy(t):
 			affordable += 1
-	_add_card(SpriteBank.icon(&"gem"), tr("Constellation"), tr("Spend gold and shards on permanent talents."), tr("%d upgrades available") % affordable if affordable > 0 else tr("Nothing affordable yet"), UiSkin.GOLD, _open_talents)
-	var gear: PackedStringArray = []
-	for slot in Loot.SLOTS:
-		var item: ItemData = meta.equipped.get(slot)
-		gear.append("%s: %s" % [tr(Loot.SLOT_NAMES[slot]), item.display_name if item else "-"])
-	var info := _add_card(SpriteBank.icon(&"armor"), tr("Equipment"), "\n".join(gear), tr("Best loot equips itself"), UiSkin.EDGE, func() -> void: pass)
-	info.focus_mode = Control.FOCUS_NONE
-	info.mouse_default_cursor_shape = Control.CURSOR_ARROW
+	_add_card(SpriteBank.icon(&"gem"), tr("Constellation"), tr("Spend gold and shards on permanent talents."), tr("%d available") % affordable if affordable > 0 else tr("Save up"), UiSkin.GOLD, _open_talents)
+	_add_card(SpriteBank.icon(&"armor"), tr("Armory"), tr("Equip, compare and salvage the loot you brought back."), tr("%d in stash") % meta.stash.size(), Loot.RARITY_COLORS[2], _open_armory)
+	var upgradable := 0
+	for h: HeroData in GameData.HEROES:
+		if meta.can_upgrade_skill(h.id):
+			upgradable += 1
+	_add_card(SpriteBank.icon(&"cross"), tr("Skills"), tr("Train each hero's skill with shards."), tr("%d ready") % upgradable if upgradable > 0 else tr("Needs shards"), BOON_COLOR, _show_skills)
 	_focus_first_card()
 
 
-func _start_expedition() -> void:
-	_attach(GameData.new_expedition(meta, randi()))
+func _show_dungeon_select() -> void:
+	_set_text(tr("Choose a dungeon"), tr("Beat a dungeon's boss to open the next one."))
+	_clear_cards()
+	for d in GameData.dungeons():
+		var open := meta.is_dungeon_unlocked(d)
+		var footer := tr("Cleared") if meta.cleared.has(String(d.id)) else (tr("Open") if open else tr("Locked"))
+		var body := tr(d.description) if open else tr("Defeat the boss of %s first.") % tr(GameData.dungeon(d.unlock_after).display_name)
+		var card := _add_card(SpriteBank.icon(d.boss.id, 2), tr(d.display_name), body, footer, d.wall_tint, _start_expedition.bind(d.id))
+		card.disabled = not open
+	_add_card(SpriteBank.icon(&"fire"), tr("Back"), tr("Return to the camp."), "", UiSkin.EDGE, func() -> void: _show_camp(""))
+	_focus_first_card()
+
+
+func _show_skills() -> void:
+	_set_text(tr("Skills"), tr("Each level: +20%% skill power and 8%% faster cooldown. Shards: %d") % meta.shards)
+	_clear_cards()
+	for h: HeroData in GameData.HEROES:
+		var lvl := meta.skill_level(h.id)
+		var maxed := lvl >= MetaState.MAX_SKILL_LEVEL
+		var footer := tr("MAX") if maxed else tr("Lv %d  ->  %d shards") % [lvl, meta.skill_cost(h.id)]
+		var card := _add_card(SpriteBank.icon(h.id, 2), "%s: %s" % [tr(h.display_name), tr(h.skill_name)], tr(h.skill_description), footer, BOON_COLOR, _on_upgrade_skill.bind(h.id))
+		card.disabled = not meta.can_upgrade_skill(h.id)
+	_add_card(SpriteBank.icon(&"fire"), tr("Back"), tr("Return to the camp."), "", UiSkin.EDGE, func() -> void: _show_camp(""))
+	_focus_first_card()
+
+
+func _on_upgrade_skill(hero_id: StringName) -> void:
+	if meta.upgrade_skill(hero_id):
+		meta.save()
+		_show_camp("")
+		_show_skills()
+
+
+func _start_expedition(dungeon_id: StringName = &"catacombs") -> void:
+	if not _rewarded_offered:
+		Platform.request_ad("midgame")
+	_rewarded_offered = false
+	_attach(GameData.new_expedition(meta, randi(), dungeon_id))
 	_save_run()
-	_show_doors(tr("You enter the Catacombs. Every room burns light: get out before it goes dark."))
+	_show_doors(tr("You enter the %s. Every room burns light: get out before it goes dark.") % tr(GameData.dungeon(dungeon_id).display_name))
 
 
 ## Muestra la elección pendiente que corresponda: nivel, recompensa o puertas.
@@ -155,7 +209,13 @@ func _show_doors(message: String) -> void:
 		var footer := tr("-%d light") % cost
 		if kind == &"camp":
 			footer = tr("-%d light, then +%d") % [cost, Expedition.CAMP_TORCH]
-		var card := _add_card(SpriteBank.icon(SpriteBank.DOOR_ICONS[kind]), tr(door.name), tr(door.desc), footer, door.color, _on_door.bind(kind))
+		var door_name := tr(door.name)
+		var icon := SpriteBank.icon(SpriteBank.DOOR_ICONS[kind])
+		if kind == &"boss":
+			var boss: EnemyData = GameData.dungeon(expedition.dungeon_id).boss
+			door_name = tr(boss.display_name)
+			icon = SpriteBank.icon(boss.id, 2)
+		var card := _add_card(icon, door_name, tr(door.desc), footer, door.color, _on_door.bind(kind))
 		card.disabled = not expedition.can_enter(kind)
 	_add_card(SpriteBank.icon(&"torch"), tr("Retreat"), tr("Leave now and keep everything: %d gold, %d items.") % [expedition.gold, expedition.items.size()], tr("Keep 100%"), UiSkin.TORCH, _on_retreat)
 	_focus_first_card()
@@ -163,6 +223,7 @@ func _show_doors(message: String) -> void:
 
 func _show_levelup() -> void:
 	_update_hud()
+	Audio.play(&"levelup")
 	_show_party_only()
 	var remaining := expedition.pending_levelups
 	_set_text(tr("Level up! Level %d") % (expedition.level - remaining + 1), tr("Choose a blessing for this expedition.") + ("  " + tr("(%d more to choose)") % (remaining - 1) if remaining > 1 else ""))
@@ -211,14 +272,29 @@ func _show_result() -> void:
 	]
 	for item: ItemData in summary.equipped:
 		lines.append(tr("Equipped: %s") % item.describe())
+	if summary.stashed > 0:
+		lines.append(tr("%d items went to the armory stash.") % summary.stashed)
 	if summary.salvage > 0:
-		lines.append(tr("Salvaged leftovers: +%d gold") % summary.salvage)
+		lines.append(tr("Stash full: salvaged the worst for +%d gold") % summary.salvage)
+	if summary.first_clear:
+		var index := GameData.dungeons().find(GameData.dungeon(expedition.dungeon_id))
+		if index + 1 < GameData.DUNGEONS.size():
+			lines.append(tr("New dungeon unlocked: %s!") % tr(GameData.DUNGEONS[index + 1].display_name))
 	if err != OK:
 		lines.append(tr("(Couldn't save: %s)") % error_string(err))
 	var good: bool = kept.ratio >= 1.0
+	Platform.gameplay_stop()
+	Audio.play(&"victory" if good else &"defeat")
+	if expedition.outcome == &"victory":
+		Platform.happy_time()
 	_set_text(tr(OUTCOME_TEXT[expedition.outcome]), "\n".join(lines), UiSkin.GOLD if good else UiSkin.DANGER)
 	_clear_cards()
 	_add_card(SpriteBank.icon(&"fire"), tr("Back to camp"), tr("Spend your loot on talents and try again."), tr("Continue"), UiSkin.TORCH, func() -> void: _show_camp(""))
+	if Platform.rewarded_available() and kept.gold > 0:
+		_rewarded_offered = true
+		var bonus: int = kept.gold
+		var ad_card := _add_card(SpriteBank.icon(&"coin"), tr("Double the gold"), tr("Watch a short ad to get +%d gold. Optional.") % bonus, tr("Watch ad"), UiSkin.GOLD, func() -> void: pass)
+		ad_card.pressed.connect(_on_double_gold.bind(ad_card, bonus))
 	_focus_first_card()
 
 
@@ -236,14 +312,33 @@ func _close_talents() -> void:
 	_show_camp("")
 
 
+func _open_armory() -> void:
+	var armory := ArmoryScreen.new()
+	add_child(armory)
+	armory.open(meta)
+	_overlay = armory
+	armory.changed.connect(func() -> void: meta.save())
+	armory.closed.connect(_close_armory.bind(armory))
+
+
+func _close_armory(armory: ArmoryScreen) -> void:
+	armory.queue_free()
+	_overlay = null
+	_show_camp("")
+
+
 # --- acciones ----------------------------------------------------------------
 
 func _attach(ex: Expedition) -> void:
 	expedition = ex
-	expedition.torch_changed.connect(func(_v: int) -> void: _update_hud())
+	expedition.torch_changed.connect(_on_torch_changed)
 	expedition.checkpoint.connect(_save_run)
 	expedition.ended.connect(_on_expedition_ended)
 	_backdrop.set_campfire(false)
+	Audio.play_music(&"dungeon")
+	Platform.gameplay_start()
+	var d := GameData.dungeon(ex.dungeon_id)
+	_backdrop.set_palette(d.wall_tint, d.floor_color)
 
 
 func _save_run() -> void:
@@ -254,6 +349,7 @@ func _save_run() -> void:
 
 func _on_door(kind: StringName) -> void:
 	_clear_cards()
+	Audio.play(&"door")
 	var result := expedition.enter(kind)
 	if result.has("error"):
 		_show_doors(result.error)
@@ -271,6 +367,7 @@ func _on_levelup(index: int) -> void:
 
 
 func _on_reward(index: int) -> void:
+	Audio.play(&"coin")
 	if expedition.choose_reward(index) and not expedition.finished:
 		_show_next()
 
@@ -342,6 +439,7 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 				target.set_hp(e.hp)
 			if skipping:
 				return 0.0
+			Audio.play(&"crit" if e.crit else &"hit")
 			if source:
 				source.lunge()
 			if target:
@@ -355,15 +453,19 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 			if target:
 				target.set_hp(e.hp)
 				if not skipping:
+					if e.src != e.dst:
+						Audio.play(&"heal")
 					target.healed()
 					_float_at(target.hit_point(), "+%d" % e.amount, UiSkin.HEAL)
 		"skill":
 			if source and not skipping:
+				Audio.play(&"skill")
 				_float_at(source.hit_point() - Vector2(0, 34), tr(e.label), UiSkin.TORCH)
 		"death":
 			if target:
 				target.set_hp(0)
 				if not skipping:
+					Audio.play(&"death")
 					target.die()
 					_add_trauma(0.5 if e.dst.max_hp > 300 else 0.3)
 					return 0.12
@@ -426,6 +528,10 @@ func _build_ui() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hud.add_child(spacer)
+	_mute_button = Button.new()
+	_mute_button.focus_mode = Control.FOCUS_NONE
+	_mute_button.pressed.connect(_toggle_mute)
+	hud.add_child(_mute_button)
 	_speed_button = Button.new()
 	_speed_button.focus_mode = Control.FOCUS_NONE
 	_speed_button.pressed.connect(_on_speed)
@@ -489,6 +595,7 @@ func _build_ui() -> void:
 
 func _update_hud() -> void:
 	_speed_button.text = tr("Speed x%d  [S]") % int(SPEEDS[speed_index])
+	_mute_button.text = tr("Sound off  [M]") if Audio.is_muted() else tr("Sound on  [M]")
 	var in_run := expedition != null and not expedition.finished
 	_torch.visible = in_run
 	_xp_bar.visible = in_run
@@ -561,6 +668,7 @@ func _add_card(icon: Texture2D, title: String, body: String, footer: String, acc
 	var card: ChoiceCard = CHOICE_CARD.instantiate()
 	_cards.add_child(card)
 	card.setup(_cards.get_child_count(), icon, title, body, footer, accent, title_color)
+	card.pressed.connect(func() -> void: Audio.play(&"click"))
 	card.pressed.connect(callback)
 	return card
 
@@ -605,6 +713,34 @@ func _icon_label(parent: Node, icon_id: StringName, color: Color) -> Label:
 	var label := _label(row, "", 17)
 	label.add_theme_color_override("font_color", color)
 	return label
+
+
+func _toggle_mute() -> void:
+	Audio.set_muted(not Audio.is_muted())
+	if meta:
+		meta.muted = Audio.is_muted()
+		meta.save()
+	_update_hud()
+
+
+func _on_torch_changed(value: int) -> void:
+	_update_hud()
+	if value > 0 and value <= TorchMeter.LOW_LIGHT:
+		Audio.play(&"torch_low", 0.0)
+
+
+func _on_double_gold(card: ChoiceCard, bonus: int) -> void:
+	card.disabled = true
+	Platform.request_ad("rewarded", func(ok: bool) -> void:
+		if not ok:
+			card.disabled = false
+			_set_text(_title.text, tr("The ad couldn't play. No problem, your loot is safe."))
+			return
+		meta.gold += bonus
+		meta.save()
+		Audio.play(&"coin")
+		card.queue_free()
+		_set_text(_title.text, tr("+%d gold added. Thanks!") % bonus))
 
 
 func _on_speed() -> void:

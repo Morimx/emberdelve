@@ -48,11 +48,18 @@ var _boss: EnemyData
 var _boon_pool: Array[BoonData]
 ## gold_pct, xp_pct y luck del progreso permanente.
 var _run_bonus := {}
+## Mazmorra de la expedición: escala a todos los enemigos y paga más esquirlas en el jefe.
+var dungeon_id: StringName = &"catacombs"
+var difficulty := 1.0
+var boss_shards := 3
 
 
-func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int) -> void:
+func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int, dungeon_difficulty := 1.0, dungeon := &"catacombs", shards_for_boss := 3) -> void:
 	rng.seed = seed_value
 	run_id = str(seed_value)
+	difficulty = dungeon_difficulty
+	dungeon_id = dungeon
+	boss_shards = shards_for_boss
 	_enemy_pool = enemy_pool
 	_boss = boss
 	_boon_pool = boons
@@ -199,7 +206,7 @@ func _weighted_door(exclude: Array) -> StringName:
 
 func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	var depth := step - 1
-	var scale := 1.0 + 0.2 * depth
+	var scale := (1.0 + 0.2 * depth) * difficulty
 	var enemies: Array[Unit] = []
 	match kind:
 		&"combat":
@@ -211,7 +218,7 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 			enemies.append(elite)
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 		&"boss":
-			enemies.append(Unit.from_enemy(_boss, 1.0))
+			enemies.append(Unit.from_enemy(_boss, difficulty))
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 
 	var fighters: Array[Unit] = []
@@ -237,7 +244,7 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	if kind == &"elite":
 		shards += 1
 	if kind == &"boss":
-		shards += 3
+		shards += boss_shards
 		_finish(&"victory")
 		return
 	result["xp"] = _gain_xp(int(gained_xp * (1.0 + _run_bonus.get("xp_pct", 0.0))))
@@ -349,6 +356,8 @@ func _finish(result: StringName) -> void:
 		"items": sorted_items.slice(0, int(items.size() * ratio)),
 		"steps": step,
 		"run_id": run_id,
+		"dungeon": String(dungeon_id),
+		"outcome": String(result),
 	}
 	ended.emit(outcome, kept)
 
@@ -395,6 +404,7 @@ func to_dict() -> Dictionary:
 		"level": level, "xp": xp, "pending_levelups": pending_levelups,
 		"levelup_options": levelup_options.map(func(b: BoonData) -> String: return String(b.id)),
 		"run_bonus": _run_bonus.duplicate(),
+		"dungeon": String(dungeon_id), "difficulty": difficulty, "boss_shards": boss_shards,
 	}
 
 
@@ -405,6 +415,9 @@ func apply_state(d: Dictionary) -> bool:
 	if version < 1 or version > RUN_VERSION or not (d.get("party") is Array):
 		return false
 	level = int(d.get("level", 1))
+	dungeon_id = StringName(str(d.get("dungeon", "catacombs")))
+	difficulty = float(d.get("difficulty", 1.0))
+	boss_shards = int(d.get("boss_shards", 3))
 	xp = int(d.get("xp", 0))
 	pending_levelups = int(d.get("pending_levelups", 0))
 	levelup_options.clear()
