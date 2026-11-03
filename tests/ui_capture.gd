@@ -37,6 +37,14 @@ func _initialize() -> void:
 	main._show_camp("")
 	await create_timer(1.0).timeout
 	_shot("1f_camp_keeper")
+	main._toggle_language()
+	await _frames(10)
+	_shot("1g_camp_es")
+	main._show_dungeon_select()
+	await _frames(5)
+	_shot("1h_dungeons_es")
+	main._toggle_language()
+	await _frames(5)
 
 	main.speed_index = 1
 	main._start_expedition()

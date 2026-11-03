@@ -24,7 +24,11 @@ func setup(u: Unit, hp: int) -> void:
 	_sprite.pivot_offset = Vector2(side / 2.0, side)
 	_sprite.texture = SpriteBank.texture(u.id)
 	_sprite.flip_h = u.is_enemy  # los sprites miran a la izquierda; los enemigos, a la derecha
-	_name.text = tr(u.display_name)
+	# Los élites llegan como "Elite <nombre>": se traducen las dos partes por separado.
+	if u.display_name.begins_with("Elite "):
+		_name.text = tr("Elite %s") % tr(u.display_name.trim_prefix("Elite "))
+	else:
+		_name.text = tr(u.display_name)
 	_bar.max_value = u.max_hp
 	set_hp(hp)
 

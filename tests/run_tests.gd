@@ -35,6 +35,9 @@ const TESTS: PackedStringArray = [
 	"test_skill_levels_strengthen_heroes",
 	"test_stash_overflow_salvages_worst",
 	"test_meta_v5_migration",
+	"test_spanish_covers_every_text",
+	"test_settings_roundtrip",
+	"test_locale_switches_language",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -463,4 +466,44 @@ func test_meta_v5_migration() -> bool:
 	_write_raw(TMP, JSON.stringify({"version": 4, "gold": 3, "best_step": 9, "talents": {"ember": 1}}))
 	var loaded := MetaState.load_from(TMP)
 	_check(loaded.cleared.has("catacombs") and loaded.stash.is_empty() and loaded.skill_level(&"cleric") == 1, "v4 a v5: quien llegó al jefe tiene abierta la segunda mazmorra")
+	return true
+
+
+func test_spanish_covers_every_text() -> bool:
+	var fmt := RegEx.create_from_string("%[ds%]")
+	var missing: PackedStringArray = []
+	var bad_format: PackedStringArray = []
+	for key in I18nKeys.collect():
+		if not LocaleEs.TEXT.has(key):
+			missing.append(key)
+			continue
+		var a := fmt.search_all(key).map(func(m: RegExMatch) -> String: return m.get_string())
+		var b := fmt.search_all(LocaleEs.TEXT[key]).map(func(m: RegExMatch) -> String: return m.get_string())
+		if a != b:
+			bad_format.append(key)
+	if not missing.is_empty():
+		printerr("    sin traducir: ", missing)
+	if not bad_format.is_empty():
+		printerr("    marcadores distintos: ", bad_format)
+	_check(missing.is_empty(), "todos los textos visibles tienen traducción al español")
+	_check(bad_format.is_empty(), "las traducciones conservan los marcadores %d/%s/%%")
+	return true
+
+
+func test_settings_roundtrip() -> bool:
+	var meta := MetaState.new()
+	meta.volume = 0.35
+	meta.language = "es"
+	var loaded := MetaState.from_dict(meta.to_dict())
+	_check(is_equal_approx(loaded.volume, 0.35) and loaded.language == "es", "volumen e idioma se guardan")
+	_check(is_equal_approx(MetaState.from_dict({"version": 5}).volume, 0.8), "guardado viejo: volumen por defecto")
+	return true
+
+
+func test_locale_switches_language() -> bool:
+	Locale.apply("es")
+	var es := TranslationServer.translate("Floor %d · Room %d/%d") == "Piso %d · Sala %d/%d"
+	Locale.apply("en")
+	var en := TranslationServer.translate("Camp") == "Camp"
+	_check(es and en and Locale.current() == "en", "el idioma cambia entre español e inglés")
 	return true

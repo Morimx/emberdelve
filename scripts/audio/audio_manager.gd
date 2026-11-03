@@ -26,6 +26,7 @@ var _music_player := AudioStreamPlayer.new()
 var _current_music: StringName = &""
 var _muted := false
 var _ad_mute := false
+var _volume := 0.8
 
 
 func _ready() -> void:
@@ -82,8 +83,19 @@ func set_ad_mute(value: bool) -> void:
 	_apply_mute()
 
 
+## Volumen general en escala lineal (0 a 1); 0 equivale a silencio.
+func set_volume(value: float) -> void:
+	_volume = clampf(value, 0.0, 1.0)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(_volume, 0.001)))
+	_apply_mute()
+
+
+func get_volume() -> float:
+	return _volume
+
+
 func _apply_mute() -> void:
-	AudioServer.set_bus_mute(0, _muted or _ad_mute)
+	AudioServer.set_bus_mute(0, _muted or _ad_mute or _volume <= 0.0)
 
 
 func _build_sfx() -> void:

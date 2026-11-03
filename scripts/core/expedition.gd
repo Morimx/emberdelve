@@ -135,7 +135,9 @@ func enter(kind: StringName) -> Dictionary:
 			_set_torch(torch + CAMP_TORCH + int(_run_bonus.get("camp_torch", 0.0)))
 			for u in party:
 				u.hp = mini(u.max_hp, maxi(u.hp, 1) + int(u.max_hp * CAMP_HEAL))
-			result["text"] = "Camp: +%d light and the party recovers." % CAMP_TORCH
+			# Texto con su argumento aparte, para que la UI lo traduzca antes de formatearlo.
+			result["text"] = "Camp: +%d light and the party recovers."
+			result["text_args"] = [CAMP_TORCH]
 	if not finished:
 		checkpoint.emit()
 	return result

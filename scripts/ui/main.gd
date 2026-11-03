@@ -26,6 +26,7 @@ const BOON_ICONS := {
 	&"heal_pct": &"cross", &"torch": &"torch",
 }
 const BOON_COLOR := Color("b065ec")
+const SHARD_COLOR := Color("5fd6e8")
 ## Escenario del fondo según el tipo de sala.
 const ROOM_SCENES := {&"combat": &"corridor", &"elite": &"elite", &"event": &"shrine", &"camp": &"camp", &"boss": &"boss"}
 const CLOUD_SAVE_KEY := "emberdelve_save"
@@ -51,6 +52,10 @@ var _complained := {}
 ## midgame antes de la siguiente (regla de CrazyGames: no ambos entre los mismos niveles).
 var _rewarded_offered := false
 var _mute_button: Button
+var _volume_slider: HSlider
+var _lang_button: Button
+## Chips del HUD con los totales del jugador: id -> {chip, value, caption}.
+var _chips := {}
 ## Pantalla superpuesta abierta (armería); bloquea las teclas 1-9 del panel de cartas.
 var _overlay: Control
 
@@ -73,6 +78,7 @@ var _cards: HBoxContainer
 
 func _ready() -> void:
 	theme = UiSkin.make_theme()
+	Locale.apply("")  # idioma del navegador hasta leer el guardado
 	_build_ui()
 	SaveIO.import_legacy(["save.json", "save.json.bak", "run.json", "run.json.bak"])
 	_set_text(tr("Loading..."), "")
@@ -80,6 +86,9 @@ func _ready() -> void:
 	_pull_cloud_saves()
 	meta = MetaState.load_from()
 	Audio.set_muted(meta.muted)
+	Audio.set_volume(meta.volume)
+	_volume_slider.set_value_no_signal(meta.volume * 100.0)
+	Locale.apply(meta.language)
 	_update_hud()
 	var resumed := RunStore.load_run(meta)
 	if resumed == null:
@@ -118,6 +127,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif key.keycode == KEY_M:
 		_toggle_mute()
 		get_viewport().set_input_as_handled()
+	elif key.keycode in [KEY_MINUS, KEY_KP_SUBTRACT]:
+		_nudge_volume(-10.0)
+		get_viewport().set_input_as_handled()
+	elif key.keycode in [KEY_EQUAL, KEY_PLUS, KEY_KP_ADD]:
+		_nudge_volume(10.0)
+		get_viewport().set_input_as_handled()
 
 
 # --- pantallas ---------------------------------------------------------------
@@ -138,7 +153,7 @@ func _show_camp(message: String) -> void:
 		_add_unit_view(u, _party_row, u.hp)
 	var keeper := _add_npc(&"keeper", _enemy_row)
 	_say_later(keeper, &"keeper", &"camp", UiSkin.TORCH, 0.6)
-	_set_text(tr("Camp"), message if message != "" else tr("Gold %d  ·  Shards %d  ·  Expeditions %d  ·  Deepest room %d/%d") % [meta.gold, meta.shards, meta.runs, meta.best_step, Expedition.STEPS])
+	_set_text(tr("Camp"), message if message != "" else tr("Choose a dungeon to explore, or spend your shards on talents and skills."))
 	_clear_cards()
 	var open_count := 0
 	for d in GameData.dungeons():
@@ -382,7 +397,10 @@ func _on_door(kind: StringName) -> void:
 			return
 		_show_event_result(result)
 		return
-	_show_next(tr(result.get("text", "")))
+	var text := tr(result.get("text", ""))
+	if result.has("text_args"):
+		text = text % result.text_args
+	_show_next(text)
 
 
 func _on_levelup(index: int) -> void:
@@ -758,18 +776,20 @@ func _build_ui() -> void:
 	var hud_panel := PanelContainer.new()
 	root.add_child(hud_panel)
 	var hud := HBoxContainer.new()
-	hud.add_theme_constant_override("separation", 16)
+	hud.add_theme_constant_override("separation", 10)
 	hud_panel.add_child(hud)
 	_step_label = _label(hud, "", 17)
 	_torch = TorchMeter.new()
 	hud.add_child(_torch)
-	_gold_label = _icon_label(hud, &"coin", UiSkin.GOLD)
-	_as_number(_gold_label)
+	_gold_label = _stat_chip(hud, &"gold", &"coin", UiSkin.GOLD)
+	_stat_chip(hud, &"shards", &"gem", SHARD_COLOR)
+	_stat_chip(hud, &"runs", &"torch", UiSkin.TORCH)
+	_stat_chip(hud, &"deepest", &"door", UiSkin.HEAL)
 	_level_label = _label(hud, "")
 	_as_number(_level_label)
 	_level_label.add_theme_color_override("font_color", BOON_COLOR.lightened(0.3))
 	_xp_bar = ProgressBar.new()
-	_xp_bar.custom_minimum_size = Vector2(90, 10)
+	_xp_bar.custom_minimum_size = Vector2(70, 10)
 	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_xp_bar.show_percentage = false
 	var xp_fill := StyleBoxFlat.new()
@@ -781,10 +801,24 @@ func _build_ui() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hud.add_child(spacer)
+	_lang_button = Button.new()
+	_lang_button.focus_mode = Control.FOCUS_NONE
+	_lang_button.pressed.connect(_toggle_language)
+	hud.add_child(_lang_button)
 	_mute_button = Button.new()
 	_mute_button.focus_mode = Control.FOCUS_NONE
 	_mute_button.pressed.connect(_toggle_mute)
 	hud.add_child(_mute_button)
+	_volume_slider = HSlider.new()
+	_volume_slider.custom_minimum_size = Vector2(64, 0)
+	_volume_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_volume_slider.focus_mode = Control.FOCUS_NONE
+	_volume_slider.max_value = 100
+	_volume_slider.step = 5
+	_volume_slider.value = Audio.get_volume() * 100.0
+	_volume_slider.value_changed.connect(_on_volume_changed)
+	_volume_slider.drag_ended.connect(func(_changed: bool) -> void: _save_settings())
+	hud.add_child(_volume_slider)
 	_speed_button = Button.new()
 	_speed_button.focus_mode = Control.FOCUS_NONE
 	_speed_button.pressed.connect(_on_speed)
@@ -847,9 +881,27 @@ func _build_ui() -> void:
 
 
 func _update_hud() -> void:
-	_speed_button.text = tr("Speed x%d  [S]") % int(SPEEDS[speed_index])
-	_mute_button.text = tr("Sound off  [M]") if Audio.is_muted() else tr("Sound on  [M]")
+	_speed_button.text = "x%d  [S]" % int(SPEEDS[speed_index])
+	_speed_button.tooltip_text = tr("Combat speed")
+	var silent := Audio.is_muted() or Audio.get_volume() <= 0.0
+	_mute_button.text = tr("Muted") if silent else tr("Sound")
+	_mute_button.tooltip_text = tr("Mute or unmute  [M]. Volume: - and +")
+	_mute_button.add_theme_color_override("font_color", UiSkin.DANGER if silent else UiSkin.TEXT)
+	_lang_button.text = "Español" if TranslationServer.get_locale().begins_with("es") else "English"
+	_lang_button.tooltip_text = tr("Language")
 	var in_run := expedition != null and not expedition.finished
+	_lang_button.visible = not in_run
+	_speed_button.visible = in_run
+	for id in [&"shards", &"runs", &"deepest"]:
+		_chips[id].chip.visible = not in_run and meta != null
+	_chips[&"gold"].caption.text = tr("Gold")
+	_chips[&"shards"].caption.text = tr("Shards")
+	_chips[&"runs"].caption.text = tr("Expeditions")
+	_chips[&"deepest"].caption.text = tr("Deepest room")
+	if meta:
+		_chips[&"shards"].value.text = "%d" % meta.shards
+		_chips[&"runs"].value.text = "%d" % meta.runs
+		_chips[&"deepest"].value.text = "%d/%d" % [meta.best_step, Expedition.STEPS]
 	_torch.visible = in_run
 	_xp_bar.visible = in_run
 	_level_label.visible = in_run
@@ -858,7 +910,7 @@ func _update_hud() -> void:
 		_step_label.text = tr("Emberdelve")
 		_gold_label.text = "%d" % meta.gold if meta else ""
 		return
-	_step_label.text = tr(expedition.floor_label())
+	_step_label.text = _floor_text()
 	_torch.set_value(expedition.torch, expedition.torch_max)
 	_backdrop.set_light(float(expedition.torch) / maxf(1.0, expedition.torch_max))
 	_gold_label.text = "%d" % expedition.gold
@@ -866,6 +918,14 @@ func _update_hud() -> void:
 	_xp_bar.max_value = expedition.xp_to_next()
 	_xp_bar.value = expedition.xp
 	_loot_label.text = tr("Items %d · Blessings %d") % [expedition.items.size(), expedition.boons_taken.size()]
+
+
+## Piso y sala traducidos (floor_label() devuelve el texto ya armado, en inglés).
+func _floor_text() -> String:
+	if expedition.step >= Expedition.STEPS - 1:
+		return tr("Boss lair")
+	var per := Expedition.ROOMS_PER_FLOOR
+	return tr("Floor %d · Room %d/%d") % [expedition.step / per + 1, expedition.step % per + 1, per]
 
 
 func _set_text(title: String, body: String, title_color := UiSkin.GOLD) -> void:
@@ -966,6 +1026,42 @@ func _as_number(label: Label) -> void:
 	label.theme_type_variation = UiSkin.NUMBER_VARIATION
 
 
+## Chip del HUD: icono, número grande en el color del recurso y su nombre debajo.
+func _stat_chip(parent: Node, id: StringName, icon_id: StringName, color: Color) -> Label:
+	var chip := PanelContainer.new()
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(color.r, color.g, color.b, 0.13)
+	box.border_color = color.darkened(0.25)
+	box.set_border_width_all(2)
+	box.content_margin_left = 6
+	box.content_margin_right = 8
+	box.content_margin_top = 1
+	box.content_margin_bottom = 1
+	chip.add_theme_stylebox_override("panel", box)
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(chip)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	chip.add_child(row)
+	var icon := TextureRect.new()
+	icon.texture = SpriteBank.icon(icon_id, 3)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", -4)
+	row.add_child(col)
+	var value := Label.new()
+	value.theme_type_variation = UiSkin.NUMBER_VARIATION
+	value.add_theme_font_size_override("font_size", 20)
+	value.add_theme_color_override("font_color", color.lightened(0.15))
+	col.add_child(value)
+	var caption := _label(col, "", 11)
+	caption.add_theme_color_override("font_color", color.lerp(UiSkin.MUTED, 0.5))
+	_chips[id] = {"chip": chip, "value": value, "caption": caption}
+	return value
+
+
 func _icon_label(parent: Node, icon_id: StringName, color: Color) -> Label:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
@@ -1003,11 +1099,41 @@ func _pull_cloud_saves() -> void:
 
 
 func _toggle_mute() -> void:
-	Audio.set_muted(not Audio.is_muted())
-	if meta:
-		meta.muted = Audio.is_muted()
-		_save_meta()
+	if not Audio.is_muted() and Audio.get_volume() <= 0.0:
+		# Con el volumen en cero, el botón vuelve a dar sonido en lugar de "silenciar".
+		_volume_slider.value = 50
+	else:
+		Audio.set_muted(not Audio.is_muted())
+	_save_settings()
 	_update_hud()
+
+
+func _on_volume_changed(value: float) -> void:
+	Audio.set_volume(value / 100.0)
+	if value > 0.0 and Audio.is_muted():
+		Audio.set_muted(false)
+	_update_hud()
+
+
+func _nudge_volume(delta: float) -> void:
+	_volume_slider.value = clampf(_volume_slider.value + delta, 0.0, 100.0)
+	_save_settings()
+
+
+func _save_settings() -> void:
+	if meta == null:
+		return
+	meta.muted = Audio.is_muted()
+	meta.volume = Audio.get_volume()
+	meta.language = Locale.current()
+	_save_meta()
+
+
+func _toggle_language() -> void:
+	Locale.apply("en" if Locale.current() == "es" else "es")
+	_save_settings()
+	# Las pantallas arman sus textos con tr() al mostrarse: se vuelve a dibujar el campamento.
+	_show_camp("")
 
 
 func _on_torch_changed(value: int) -> void:

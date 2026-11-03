@@ -35,6 +35,9 @@ var cleared := {}
 ## id de héroe -> nivel de su habilidad (1..MAX_SKILL_LEVEL).
 var skill_levels := {}
 var muted := false
+## Volumen general (0 a 1) e idioma elegido ("" = el del navegador).
+var volume := 0.8
+var language := ""
 
 
 func is_dungeon_unlocked(d: DungeonData) -> bool:
@@ -196,7 +199,7 @@ func to_dict() -> Dictionary:
 		"runs": runs, "best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
 		"stash": stash.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
 		"cleared": cleared.duplicate(), "skill_levels": skill_levels.duplicate(),
-		"settings": {"muted": muted},
+		"settings": {"muted": muted, "volume": volume, "language": language},
 		"saved_at": Time.get_unix_time_from_system(),
 	}
 
@@ -267,6 +270,8 @@ static func from_dict(d: Dictionary) -> MetaState:
 	var settings = d.get("settings", {})
 	if settings is Dictionary:
 		m.muted = bool(settings.get("muted", false))
+		m.volume = clampf(float(settings.get("volume", 0.8)), 0.0, 1.0)
+		m.language = String(settings.get("language", ""))
 	return m
 
 
