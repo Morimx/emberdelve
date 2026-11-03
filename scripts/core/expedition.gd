@@ -44,6 +44,8 @@ var levelup_options: Array[BoonData] = []
 var finished := false
 var outcome: StringName = &""
 var kept := {}
+## Segundos reales jugados en esta expedición (los suma la UI); define el bonus de rapidez.
+var elapsed := 0.0
 
 var _enemy_pool: Array[EnemyData]
 var _boss: EnemyData
@@ -390,6 +392,8 @@ func _finish(result: StringName) -> void:
 		"run_id": run_id,
 		"dungeon": String(dungeon_id),
 		"outcome": String(result),
+		"seconds": int(elapsed),
+		"score": Score.compute(step, result == &"victory", int(elapsed), dungeon_id),
 	}
 	ended.emit(outcome, kept)
 
@@ -436,7 +440,7 @@ func to_dict() -> Dictionary:
 		"level": level, "xp": xp, "pending_levelups": pending_levelups,
 		"levelup_options": levelup_options.map(func(b: BoonData) -> String: return String(b.id)),
 		"run_bonus": _run_bonus.duplicate(),
-		"saved_at": Time.get_unix_time_from_system(),
+		"saved_at": Time.get_unix_time_from_system(), "elapsed": elapsed,
 		"dungeon": String(dungeon_id), "difficulty": difficulty, "boss_shards": boss_shards, "boss_power": boss_power,
 	}
 
@@ -453,6 +457,7 @@ func apply_state(d: Dictionary) -> bool:
 	boss_shards = int(d.get("boss_shards", 3))
 	boss_power = float(d.get("boss_power", 1.0))
 	xp = int(d.get("xp", 0))
+	elapsed = maxf(0.0, float(d.get("elapsed", 0.0)))
 	pending_levelups = int(d.get("pending_levelups", 0))
 	levelup_options.clear()
 	for id in d.get("levelup_options", []):

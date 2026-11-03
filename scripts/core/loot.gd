@@ -12,7 +12,7 @@ const RARITY_WEIGHTS: PackedFloat32Array = [60.0, 25.0, 11.0, 3.5, 0.5]
 const SLOTS: Array[StringName] = [&"weapon", &"armor", &"charm"]
 const SLOT_NAMES := {&"weapon": "Weapon", &"armor": "Armor", &"charm": "Charm"}
 ## Un objeto de un solo héroe vale más que uno que antes equipaba a todo el grupo.
-const HERO_ITEM_POWER := 2.5
+const HERO_ITEM_POWER := 1.2
 ## Tipo -> nombre, slot, héroe ("" = cualquiera) y pesos de ataque, defensa y vida.
 const BASES := {
 	&"sword": {"name": "Sword", "slot": &"weapon", "hero": &"warrior", "atk": 1.0, "def": 0.0, "hp": 0.0},

@@ -18,7 +18,8 @@ var _base_x := 0.0
 
 func setup(u: Unit, hp: int) -> void:
 	unit = u
-	var side := SIZE_BOSS if u.max_hp > 300 else SIZE_NORMAL
+	# Solo los jefes se ven grandes; un héroe con mucho equipo también pasa de 300 de vida.
+	var side := SIZE_BOSS if u.is_enemy and u.max_hp > 300 else SIZE_NORMAL
 	_body.custom_minimum_size = Vector2(side, side)
 	_sprite.size = Vector2(side, side)
 	_sprite.pivot_offset = Vector2(side / 2.0, side)

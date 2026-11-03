@@ -35,6 +35,8 @@ var stash: Array[ItemData] = []
 var cleared := {}
 ## id de héroe -> nivel de su habilidad (1..MAX_SKILL_LEVEL).
 var skill_levels := {}
+## Mejores puntajes, de mayor a menor: {score, dungeon, steps, seconds, outcome, at}.
+var scores: Array[Dictionary] = []
 var muted := false
 ## Volumen general (0 a 1) e idioma elegido ("" = el del navegador).
 var volume := 0.8
@@ -207,6 +209,7 @@ func apply_run(kept: Dictionary) -> Dictionary:
 		var dungeon := str(kept.get("dungeon", "catacombs"))
 		first_clear = not cleared.has(dungeon)
 		cleared[dungeon] = true
+	var rank := add_score(kept)
 	var equipped_now: Array[ItemData] = []
 	var stashed := 0
 	var salvage := 0
@@ -224,7 +227,34 @@ func apply_run(kept: Dictionary) -> Dictionary:
 			if stash[i].power() < stash[worst].power():
 				worst = i
 		salvage += salvage_from_stash(worst)
-	return {"equipped": equipped_now, "stashed": stashed, "salvage": salvage, "first_clear": first_clear}
+	return {"equipped": equipped_now, "stashed": stashed, "salvage": salvage, "first_clear": first_clear, "rank": rank}
+
+
+## Anota el puntaje de una expedición en la tabla. Devuelve su posición (0 = la mejor)
+## o -1 si no entró entre las TABLE_SIZE mejores.
+func add_score(kept: Dictionary) -> int:
+	var entry := {
+		"score": int(kept.get("score", 0)), "dungeon": str(kept.get("dungeon", "catacombs")),
+		"steps": int(kept.get("steps", 0)), "seconds": int(kept.get("seconds", 0)),
+		"outcome": str(kept.get("outcome", "")), "at": int(Time.get_unix_time_from_system()),
+	}
+	if entry.score <= 0:
+		return -1
+	var rank := scores.size()
+	for i in scores.size():
+		if entry.score > int(scores[i].score):
+			rank = i
+			break
+	if rank >= Score.TABLE_SIZE:
+		return -1
+	scores.insert(rank, entry)
+	if scores.size() > Score.TABLE_SIZE:
+		scores.resize(Score.TABLE_SIZE)
+	return rank
+
+
+func best_score() -> int:
+	return int(scores[0].score) if not scores.is_empty() else 0
 
 
 func to_dict() -> Dictionary:
@@ -239,6 +269,7 @@ func to_dict() -> Dictionary:
 		"runs": runs, "best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
 		"stash": stash.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
 		"cleared": cleared.duplicate(), "skill_levels": skill_levels.duplicate(),
+		"scores": scores.duplicate(true),
 		"settings": {"muted": muted, "volume": volume, "language": language},
 		"saved_at": Time.get_unix_time_from_system(),
 	}
@@ -335,6 +366,14 @@ static func from_dict(d: Dictionary) -> MetaState:
 	if saved_skills is Dictionary:
 		for id in saved_skills:
 			m.skill_levels[String(id)] = clampi(int(saved_skills[id]), 1, MAX_SKILL_LEVEL)
+	for entry in d.get("scores", []):
+		if entry is Dictionary and m.scores.size() < Score.TABLE_SIZE:
+			m.scores.append({
+				"score": int(entry.get("score", 0)), "dungeon": str(entry.get("dungeon", "catacombs")),
+				"steps": int(entry.get("steps", 0)), "seconds": int(entry.get("seconds", 0)),
+				"outcome": str(entry.get("outcome", "")), "at": int(entry.get("at", 0)),
+			})
+	m.scores.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.score > b.score)
 	var settings = d.get("settings", {})
 	if settings is Dictionary:
 		m.muted = bool(settings.get("muted", false))

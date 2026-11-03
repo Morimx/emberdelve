@@ -37,6 +37,9 @@ const TESTS: PackedStringArray = [
 	"test_meta_v5_migration",
 	"test_spanish_covers_every_text",
 	"test_settings_roundtrip",
+	"test_score_formula",
+	"test_score_table",
+	"test_run_time_counts_for_score",
 	"test_locale_switches_language",
 	"test_class_gear_and_charms",
 	"test_meta_v6_moves_party_gear_to_heroes",
@@ -495,6 +498,43 @@ func test_settings_roundtrip() -> bool:
 	var loaded := MetaState.from_dict(meta.to_dict())
 	_check(is_equal_approx(loaded.volume, 0.35) and loaded.language == "es", "volumen e idioma se guardan")
 	_check(is_equal_approx(MetaState.from_dict({"version": 5}).volume, 0.8), "guardado viejo: volumen por defecto")
+	return true
+
+
+func test_score_formula() -> bool:
+	var defeat := Score.compute(5, false, 100, &"catacombs")
+	var slow := Score.compute(9, true, 900, &"catacombs")
+	var fast := Score.compute(9, true, 200, &"catacombs")
+	_check(defeat == 500 and slow == 1900, "salas y victoria suman puntos")
+	_check(fast > slow and Score.compute(5, false, 10, &"catacombs") == defeat, "la rapidez solo suma al vencer")
+	_check(Score.compute(9, true, 200, &"sunken_forge") > fast, "una mazmorra más difícil vale más")
+	return true
+
+
+func test_score_table() -> bool:
+	var meta := MetaState.new()
+	for points in [300, 1200, 800]:
+		meta.add_score({"score": points, "dungeon": "catacombs", "steps": 3})
+	_check(meta.best_score() == 1200 and int(meta.scores[2].score) == 300, "la tabla queda ordenada")
+	_check(meta.add_score({"score": 0}) == -1, "un puntaje de 0 no entra")
+	for i in Score.TABLE_SIZE:
+		meta.add_score({"score": 2000 + i})
+	_check(meta.scores.size() == Score.TABLE_SIZE and meta.add_score({"score": 5}) == -1, "la tabla guarda solo las mejores")
+	var loaded := MetaState.from_dict(meta.to_dict())
+	_check(loaded.scores.size() == Score.TABLE_SIZE and loaded.best_score() == meta.best_score(), "la tabla se guarda y carga")
+	return true
+
+
+func test_run_time_counts_for_score() -> bool:
+	var ex := GameData.new_expedition(MetaState.new(), 7)
+	ex.elapsed = 75.0
+	var restored := GameData.new_expedition(MetaState.new(), 7)
+	restored.apply_state(ex.to_dict())
+	_check(is_equal_approx(restored.elapsed, 75.0), "el tiempo de la expedición se guarda")
+	ex.retreat()
+	_check(int(ex.kept.seconds) == 75 and int(ex.kept.score) == Score.compute(ex.step, false, 75, ex.dungeon_id), "el resultado trae tiempo y puntaje")
+	var meta := MetaState.new()
+	_check(int(meta.apply_run(ex.kept).rank) == (0 if int(ex.kept.score) > 0 else -1), "cobrar la expedición anota el puntaje")
 	return true
 
 

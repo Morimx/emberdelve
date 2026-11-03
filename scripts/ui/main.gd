@@ -35,6 +35,9 @@ const CLOUD_RUN_KEY := "emberdelve_run"
 ## Sacudida por "trauma": cada impacto suma, decae sola y se aplica al escenario, no a la lógica.
 const SHAKE_DECAY := 1.6
 const SHAKE_MAX := Vector2(10, 6)
+const LANES_BOTTOM := -6.0
+## Filas de la tabla de puntajes en el resultado (la tabla guarda Score.TABLE_SIZE).
+const SCORE_ROWS := 5
 
 var meta: MetaState
 var expedition: Expedition
@@ -67,6 +70,8 @@ var _xp_bar: ProgressBar
 var _loot_label: Label
 var _speed_button: Button
 var _backdrop: DungeonBackdrop
+## Puntajes sobre la escena: la tabla al terminar una expedición o el récord en el campamento.
+var _score_panel: Control
 var _lanes: HBoxContainer
 var _enemy_row: HBoxContainer
 var _party_row: HBoxContainer
@@ -99,14 +104,25 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if expedition != null and not expedition.finished:
+		expedition.elapsed += delta
 	if trauma <= 0.0:
 		return
 	trauma = maxf(trauma - SHAKE_DECAY * delta, 0.0)
 	_shake_t += delta * 30.0
 	var amount := trauma * trauma
-	_lanes.position = Vector2(SHAKE_MAX.x * amount * sin(_shake_t * 1.7), SHAKE_MAX.y * amount * sin(_shake_t * 2.3))
+	_shake_lanes(Vector2(SHAKE_MAX.x * amount * sin(_shake_t * 1.7), SHAKE_MAX.y * amount * sin(_shake_t * 2.3)))
 	if trauma == 0.0:
-		_lanes.position = Vector2.ZERO
+		_shake_lanes(Vector2.ZERO)
+
+
+## Desplaza la fila de combatientes sin tocar position: en un Control anclado, asignar
+## position fija los offsets con el tamaño de ese momento y descuadra la escena si después cambia.
+func _shake_lanes(offset: Vector2) -> void:
+	_lanes.offset_left = offset.x
+	_lanes.offset_right = offset.x
+	_lanes.offset_top = offset.y
+	_lanes.offset_bottom = LANES_BOTTOM + offset.y
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -151,6 +167,7 @@ func _show_camp(message: String) -> void:
 	for h in GameData.heroes():
 		var u := Unit.from_hero(h, meta.hero_bonus(catalog))
 		_add_unit_view(u, _party_row, u.hp)
+	_show_best_score()
 	var keeper := _add_npc(&"keeper", _enemy_row)
 	_say_later(keeper, &"keeper", &"camp", UiSkin.TORCH, 0.6)
 	_set_text(tr("Camp"), message if message != "" else tr("Choose a dungeon to explore, or spend your shards on talents and skills."))
@@ -306,10 +323,16 @@ func _show_result() -> void:
 		lines.append(tr("%d items went to the armory stash.") % summary.stashed)
 	if summary.salvage > 0:
 		lines.append(tr("Stash full: salvaged the worst for +%d gold") % summary.salvage)
+	# La primera vez que se vence la última mazmorra, el resultado agradece por jugar.
+	var finale := false
 	if summary.first_clear:
 		var index := GameData.dungeons().find(GameData.dungeon(expedition.dungeon_id))
 		if index + 1 < GameData.DUNGEONS.size():
 			lines.append(tr("New dungeon unlocked: %s!") % tr(GameData.DUNGEONS[index + 1].display_name))
+		else:
+			finale = true
+			lines.insert(0, tr("You conquered every dungeon. Thank you so much for playing Emberdelve!"))
+			lines.insert(1, tr("Keep delving to grow stronger and beat your best runs."))
 	if err != OK:
 		lines.append(tr("(Couldn't save: %s)") % error_string(err))
 	var good: bool = kept.ratio >= 1.0
@@ -317,7 +340,9 @@ func _show_result() -> void:
 	Audio.play(&"victory" if good else &"defeat")
 	if expedition.outcome == &"victory":
 		Platform.happy_time()
-	_set_text(tr(OUTCOME_TEXT[expedition.outcome]), "\n".join(lines), UiSkin.GOLD if good else UiSkin.DANGER)
+	var title := tr("Thank you for playing!") if finale else tr(OUTCOME_TEXT[expedition.outcome])
+	_set_text(title, "\n".join(lines), UiSkin.GOLD if good else UiSkin.DANGER)
+	_show_scores(int(kept.get("score", 0)), int(summary.rank))
 	_clear_cards()
 	_add_card(SpriteBank.icon(&"fire"), tr("Back to camp"), tr("Spend your loot on talents and try again."), tr("Continue"), UiSkin.TORCH, func() -> void: _show_camp(""))
 	if Platform.rewarded_available() and kept.gold > 0:
@@ -326,6 +351,72 @@ func _show_result() -> void:
 		var ad_card := _add_card(SpriteBank.icon(&"coin"), tr("Double the gold"), tr("Watch a short ad to get +%d gold. Optional.") % bonus, tr("Watch ad"), UiSkin.GOLD, func() -> void: pass)
 		ad_card.pressed.connect(_on_double_gold.bind(ad_card, bonus))
 	_focus_first_card()
+
+
+## Mejor puntaje del jugador, flotando sobre la fogata del campamento.
+func _show_best_score() -> void:
+	var stage := _backdrop.get_parent() as Control
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.z_index = 3
+	stage.add_child(box)
+	_score_panel = box
+	var caption := _label(box, tr("Best score"), 14)
+	caption.add_theme_color_override("font_color", UiSkin.TEXT)
+	var value := _label(box, str(meta.best_score()), 18)
+	value.add_theme_color_override("font_color", UiSkin.GOLD)
+	for label: Label in [caption, value]:
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_color_override("font_outline_color", UiSkin.INK)
+		label.add_theme_constant_override("outline_size", 4)
+	# Arriba de todo, en la columna de la fogata (centro de la escena) y sobre los nombres.
+	var place := func() -> void:
+		box.position = Vector2((stage.size.x - box.size.x) / 2.0, 6.0)
+	box.resized.connect(place)
+	stage.resized.connect(place)
+	box.tree_exiting.connect(func() -> void: stage.resized.disconnect(place))
+	place.call_deferred()
+
+
+## Panel a la izquierda de la escena: puntaje de esta expedición y las mejores marcas.
+## rank es la posición que ocupó en la tabla (-1 si no entró).
+func _show_scores(score: int, rank: int) -> void:
+	var panel := PanelContainer.new()
+	var style: StyleBoxTexture = UiSkin.panel(UiSkin.INK, UiSkin.EDGE, true).duplicate()
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", style)
+	panel.position = Vector2(10, 8)
+	panel.custom_minimum_size = Vector2(250, 0)
+	panel.z_index = 3
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_backdrop.get_parent().add_child(panel)
+	_score_panel = panel
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	panel.add_child(box)
+	var head := _label(box, tr("Your score: %d") % score, 17)
+	head.add_theme_color_override("font_color", UiSkin.GOLD)
+	if rank == 0 and meta.scores.size() > 1:
+		var best := _label(box, tr("New best score!"), 13)
+		best.add_theme_color_override("font_color", UiSkin.TORCH)
+	_label(box, tr("High scores"), 13).add_theme_color_override("font_color", UiSkin.MUTED)
+	for i in mini(meta.scores.size(), SCORE_ROWS):
+		_score_row(box, i, i == rank)
+	if rank >= SCORE_ROWS:
+		_score_row(box, rank, true)
+
+
+func _score_row(parent: Node, index: int, highlight: bool) -> void:
+	var entry: Dictionary = meta.scores[index]
+	var row := _label(parent, "%d. %d  %s  %s  %s" % [
+		index + 1, int(entry.score), tr(GameData.dungeon(StringName(entry.dungeon)).display_name),
+		tr("%d rooms") % int(entry.steps), Score.format_time(int(entry.seconds)),
+	], 12)
+	row.add_theme_color_override("font_color", UiSkin.GOLD if highlight else UiSkin.TEXT)
 
 
 func _open_talents() -> void:
@@ -843,7 +934,7 @@ func _build_ui() -> void:
 	stage.add_child(_backdrop)
 	_lanes = HBoxContainer.new()
 	_lanes.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_lanes.offset_bottom = -6
+	_lanes.offset_bottom = LANES_BOTTOM
 	_lanes.alignment = BoxContainer.ALIGNMENT_CENTER
 	_lanes.add_theme_constant_override("separation", 110)
 	_lanes.z_index = 2
@@ -976,7 +1067,10 @@ func _clear_arena() -> void:
 		if child is SpeechBubble:
 			child.queue_free()
 	trauma = 0.0
-	_lanes.position = Vector2.ZERO
+	_shake_lanes(Vector2.ZERO)
+	if _score_panel != null:
+		_score_panel.queue_free()
+		_score_panel = null
 	for row in [_enemy_row, _party_row]:
 		for child in row.get_children():
 			row.remove_child(child)

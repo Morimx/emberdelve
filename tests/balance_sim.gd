@@ -14,10 +14,25 @@ func _initialize() -> void:
 		if lvl > 0:
 			meta.talents = {"ember": 1, "might": lvl, "vitality": lvl, "bulwark": mini(lvl, 3), "keen_edge": mini(lvl, 3)}
 			meta.skill_levels = {"warrior": mini(lvl, 5), "cleric": mini(lvl, 5), "assassin": mini(lvl, 5)}
+			_equip(meta, lvl)
 		print("\n== %s · progreso Nv %d ==" % [setup[0], lvl])
 		for policy in [&"temerario", &"cauteloso"]:
 			_report(policy, _simulate(meta, policy, setup[0]))
 	quit()
+
+
+## Equipo que un jugador suele tener con ese progreso: los 9 espacios llenos, de rareza
+## y profundidad según el nivel (los objetos se guardan al volver con vida).
+func _equip(meta: MetaState, lvl: int) -> void:
+	var rarity := 1 if lvl < 5 else 2
+	var depth := lvl + 2
+	for hero_id in MetaState.hero_ids():
+		var gear := {}
+		for base: StringName in Loot.BASES:
+			var def: Dictionary = Loot.BASES[base]
+			if (def.hero == hero_id or def.hero == &"") and not gear.has(def.slot):
+				gear[def.slot] = Loot.make_item(base, rarity, depth)
+		meta.equipped[hero_id] = gear
 
 
 func _simulate(meta: MetaState, policy: StringName, dungeon: StringName) -> Dictionary:
