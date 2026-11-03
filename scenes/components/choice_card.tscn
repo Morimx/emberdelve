@@ -65,3 +65,4 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"NumberLabel"
 horizontal_alignment = 1
+autowrap_mode = 3

@@ -43,6 +43,10 @@ func _initialize() -> void:
 	main._show_dungeon_select()
 	await _frames(5)
 	_shot("1h_dungeons_es")
+	Locale.apply("es")
+	main._show_skills()
+	await _frames(20)
+	_shot("1i_skills_es")
 	main._toggle_language()
 	await _frames(5)
 

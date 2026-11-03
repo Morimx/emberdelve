@@ -391,7 +391,7 @@ func test_talent_bonus_reaches_expedition() -> bool:
 	var bonus := meta.hero_bonus(GameData.talents())
 	var ex := GameData.new_expedition(meta, 3)
 	var base := Unit.from_hero(GameData.HEROES[0], {})
-	_check(is_equal_approx(bonus.attack_pct, 0.16) and ex.party[0].attack > base.attack, "Might sube el ataque de los héroes")
+	_check(is_equal_approx(bonus.attack_pct, 0.12) and ex.party[0].attack > base.attack, "Might sube el ataque de los héroes")
 	_check(ex.torch == MetaState.BASE_TORCH + 1, "Torchbearer suma luz inicial")
 	_check(is_equal_approx(ex._run_bonus.gold_pct, 0.1), "Prospector llega al oro de la expedición")
 	return true

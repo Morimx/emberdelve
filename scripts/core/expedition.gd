@@ -19,7 +19,7 @@ const REST_HEAL := 0.3
 const DOOR_WEIGHTS := {&"combat": 3.0, &"elite": 1.0, &"event": 2.0}
 const LEVELUP_CHOICES := 3
 ## Cuánto más fuertes son los enemigos por cada sala de profundidad.
-const DEPTH_SCALING := 0.22
+const DEPTH_SCALING := 0.23
 ## Bonos de progreso permanente que afectan al combate (el resto ya está en las stats).
 const COMBAT_BONUS_KEYS: PackedStringArray = ["crit_chance", "lifesteal", "speed_pct", "skill_power_pct"]
 

@@ -188,13 +188,13 @@ func _show_dungeon_select() -> void:
 
 
 func _show_skills() -> void:
-	_set_text(tr("Skills"), tr("Each level: +20%% skill power and 8%% faster cooldown. Shards: %d") % meta.shards)
+	_set_text(tr("Skills"), tr("Each level: +15%% skill power and 6%% faster cooldown. Shards: %d") % meta.shards)
 	_clear_cards()
 	for h: HeroData in GameData.HEROES:
 		var lvl := meta.skill_level(h.id)
 		var maxed := lvl >= MetaState.MAX_SKILL_LEVEL
 		var footer := tr("MAX") if maxed else tr("Lv %d  ->  %d shards") % [lvl, meta.skill_cost(h.id)]
-		var card := _add_card(SpriteBank.icon(h.id, 2), "%s: %s" % [tr(h.display_name), tr(h.skill_name)], tr(h.skill_description), footer, BOON_COLOR, _on_upgrade_skill.bind(h.id))
+		var card := _add_card(SpriteBank.icon(h.id, 2), tr(h.skill_name), "%s. %s" % [tr(h.display_name), tr(h.skill_description)], footer, BOON_COLOR, _on_upgrade_skill.bind(h.id))
 		card.disabled = not meta.can_upgrade_skill(h.id)
 	_add_card(SpriteBank.icon(&"fire"), tr("Back"), tr("Return to the camp."), "", UiSkin.EDGE, func() -> void: _show_camp(""))
 	_focus_first_card()

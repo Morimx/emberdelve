@@ -37,8 +37,8 @@ static func from_hero(data: HeroData, bonus: Dictionary) -> Unit:
 	u.skill = data.skill
 	# Cada nivel de habilidad: +20% de poder y -8% de enfriamiento.
 	var lvl := int(bonus.get("skill_levels", {}).get(String(data.id), 1))
-	u.skill_cooldown = data.skill_cooldown * (1.0 - 0.08 * (lvl - 1))
-	u.skill_power = data.skill_power * (1.0 + 0.2 * (lvl - 1))
+	u.skill_cooldown = data.skill_cooldown * (1.0 - 0.06 * (lvl - 1))
+	u.skill_power = data.skill_power * (1.0 + 0.15 * (lvl - 1))
 	u.front = data.front
 	return u
 
