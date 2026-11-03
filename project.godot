@@ -17,6 +17,12 @@ config/use_custom_user_dir=true
 ; Carpeta de datos fija: no renombrar aunque cambie el nombre del juego (perdería los guardados).
 config/custom_user_dir_name="Torchbound"
 
+[audio]
+
+; Web: modo "Stream" (0) en lugar de "Sample" (1, el valor por defecto desde 4.3).
+; El modo Sample no reproduce bien los AudioStreamWAV generados en memoria.
+general/default_playback_type.web=0
+
 [display]
 
 window/size/viewport_width=960
