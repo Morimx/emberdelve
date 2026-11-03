@@ -26,6 +26,8 @@ const BOON_ICONS := {
 	&"heal_pct": &"cross", &"torch": &"torch",
 }
 const BOON_COLOR := Color("b065ec")
+const CLOUD_SAVE_KEY := "emberdelve_save"
+const CLOUD_RUN_KEY := "emberdelve_run"
 
 ## Sacudida por "trauma": cada impacto suma, decae sola y se aplica al escenario, no a la lógica.
 const SHAKE_DECAY := 1.6
@@ -67,6 +69,9 @@ func _ready() -> void:
 	theme = UiSkin.make_theme()
 	_build_ui()
 	SaveIO.import_legacy(["save.json", "save.json.bak", "run.json", "run.json.bak"])
+	_set_text(tr("Loading..."), "")
+	await Platform.wait_checked()
+	_pull_cloud_saves()
 	meta = MetaState.load_from()
 	Audio.set_muted(meta.muted)
 	_update_hud()
@@ -174,7 +179,7 @@ func _show_skills() -> void:
 
 func _on_upgrade_skill(hero_id: StringName) -> void:
 	if meta.upgrade_skill(hero_id):
-		meta.save()
+		_save_meta()
 		_show_camp("")
 		_show_skills()
 
@@ -262,11 +267,12 @@ func _show_result() -> void:
 	_show_party_only()
 	var kept := expedition.kept
 	var summary := meta.apply_run(kept)
-	var err := meta.save()
+	var err := _save_meta()
 	# Primero se cobra (save del progreso con last_run_id) y recién después se borra el
 	# autoguardado: si se corta en el medio, load_run lo reconoce como cobrado.
 	if err == OK:
 		RunStore.clear()
+		Platform.data_remove(CLOUD_RUN_KEY)
 	var lines: PackedStringArray = [
 		tr("You keep %d%%.  Rooms %d/%d  ·  Gold +%d  ·  Shards +%d  ·  Items kept %d of %d") % [int(kept.ratio * 100), kept.steps, Expedition.STEPS, kept.gold, kept.shards, kept.items.size(), expedition.items.size()],
 	]
@@ -302,7 +308,7 @@ func _open_talents() -> void:
 	_talents = TalentScreen.new()
 	add_child(_talents)
 	_talents.open(meta, GameData.talents())
-	_talents.purchased.connect(func(_t: TalentData) -> void: meta.save())
+	_talents.purchased.connect(func(_t: TalentData) -> void: _save_meta())
 	_talents.closed.connect(_close_talents)
 
 
@@ -317,7 +323,7 @@ func _open_armory() -> void:
 	add_child(armory)
 	armory.open(meta)
 	_overlay = armory
-	armory.changed.connect(func() -> void: meta.save())
+	armory.changed.connect(func() -> void: _save_meta())
 	armory.closed.connect(_close_armory.bind(armory))
 
 
@@ -343,6 +349,8 @@ func _attach(ex: Expedition) -> void:
 
 func _save_run() -> void:
 	var err := RunStore.save_run(expedition)
+	if err == OK and not expedition.finished:
+		Platform.data_set(CLOUD_RUN_KEY, JSON.stringify(expedition.to_dict()))
 	if err != OK:
 		push_warning("No se pudo autoguardar la expedición: %s" % error_string(err))
 
@@ -602,7 +610,7 @@ func _update_hud() -> void:
 	_level_label.visible = in_run
 	_loot_label.visible = in_run
 	if not in_run:
-		_step_label.text = tr("Torchbound")
+		_step_label.text = tr("Emberdelve")
 		_gold_label.text = "%d" % meta.gold if meta else ""
 		return
 	_step_label.text = tr(expedition.floor_label())
@@ -715,11 +723,34 @@ func _icon_label(parent: Node, icon_id: StringName, color: Color) -> Label:
 	return label
 
 
+## Guarda el progreso en el navegador y, en CrazyGames, también en su Data Module.
+func _save_meta() -> Error:
+	var err := meta.save()
+	if err == OK:
+		Platform.data_set(CLOUD_SAVE_KEY, JSON.stringify(meta.to_dict()))
+	return err
+
+
+## Si CrazyGames tiene una copia más nueva que la local (otro dispositivo, sesión
+## iniciada), la escribe en user:// antes de cargar. Sin SDK, data_get devuelve "".
+func _pull_cloud_saves() -> void:
+	for pair in [[MetaState.SAVE_PATH, CLOUD_SAVE_KEY], [RunStore.PATH, CLOUD_RUN_KEY]]:
+		var raw := Platform.data_get(pair[1])
+		if raw == "":
+			continue
+		var cloud = JSON.parse_string(raw)
+		if not (cloud is Dictionary) or not cloud.has("version"):
+			continue
+		var local := SaveIO.load_json(pair[0])
+		if local.is_empty() or float(cloud.get("saved_at", 0)) > float(local.get("saved_at", 0)):
+			SaveIO.save_json(pair[0], cloud)
+
+
 func _toggle_mute() -> void:
 	Audio.set_muted(not Audio.is_muted())
 	if meta:
 		meta.muted = Audio.is_muted()
-		meta.save()
+		_save_meta()
 	_update_hud()
 
 
@@ -737,7 +768,7 @@ func _on_double_gold(card: ChoiceCard, bonus: int) -> void:
 			_set_text(_title.text, tr("The ad couldn't play. No problem, your loot is safe."))
 			return
 		meta.gold += bonus
-		meta.save()
+		_save_meta()
 		Audio.play(&"coin")
 		card.queue_free()
 		_set_text(_title.text, tr("+%d gold added. Thanks!") % bonus))

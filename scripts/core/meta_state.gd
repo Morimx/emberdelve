@@ -197,6 +197,7 @@ func to_dict() -> Dictionary:
 		"stash": stash.map(func(i: ItemData) -> Dictionary: return i.to_dict()),
 		"cleared": cleared.duplicate(), "skill_levels": skill_levels.duplicate(),
 		"settings": {"muted": muted},
+		"saved_at": Time.get_unix_time_from_system(),
 	}
 
 

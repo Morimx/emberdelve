@@ -103,14 +103,16 @@ func _ready() -> void:
 	_buy.pressed.connect(_on_buy)
 	box.add_child(_buy)
 	var back := Button.new()
-	back.text = tr("Back to camp  [Esc]")
+	back.text = tr("Back to camp  [B]")
 	back.custom_minimum_size = Vector2(0, 40)
 	back.pressed.connect(func() -> void: closed.emit())
 	box.add_child(back)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	# B vuelve al campamento (en CrazyGames, Esc está reservada para salir de pantalla completa).
+	var key := event as InputEventKey
+	if (key and key.pressed and not key.echo and key.keycode == KEY_B) or event.is_action_pressed("ui_cancel"):
 		closed.emit()
 		get_viewport().set_input_as_handled()
 

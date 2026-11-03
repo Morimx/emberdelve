@@ -404,6 +404,7 @@ func to_dict() -> Dictionary:
 		"level": level, "xp": xp, "pending_levelups": pending_levelups,
 		"levelup_options": levelup_options.map(func(b: BoonData) -> String: return String(b.id)),
 		"run_bonus": _run_bonus.duplicate(),
+		"saved_at": Time.get_unix_time_from_system(),
 		"dungeon": String(dungeon_id), "difficulty": difficulty, "boss_shards": boss_shards,
 	}
 

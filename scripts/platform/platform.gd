@@ -9,6 +9,12 @@ extends Node
 
 signal ad_started()
 signal ad_finished(ok: bool)
+## Se emite una vez, cuando ya se sabe si el SDK está disponible (o fuera de web).
+signal sdk_checked()
+
+## En Basic Launch CrazyGames desactiva los anuncios y prohíbe botones de recompensa sin
+## efecto: queda en false hasta el paso a Full Launch.
+const ADS_ENABLED := false
 
 const BOOTSTRAP := """
 window.tbSdk = window.tbSdk || {
@@ -28,6 +34,18 @@ window.tbSdk = window.tbSdk || {
     if (!this.ready) return;
     try { window.CrazyGames.SDK.game[name](); } catch (e) {}
   },
+  dataGet: function (key) {
+    if (!this.ready) return '';
+    try { var v = window.CrazyGames.SDK.data.getItem(key); return v === null || v === undefined ? '' : String(v); } catch (e) { return ''; }
+  },
+  dataSet: function (key, value) {
+    if (!this.ready) return;
+    try { window.CrazyGames.SDK.data.setItem(key, value); } catch (e) {}
+  },
+  dataRemove: function (key) {
+    if (!this.ready) return;
+    try { window.CrazyGames.SDK.data.removeItem(key); } catch (e) {}
+  },
   ad: function (type, started, finished, failed) {
     if (!this.ready) { failed('notReady'); return; }
     try {
@@ -43,6 +61,7 @@ window.tbSdk.init();
 """
 
 var environment := "none"
+var checked := false
 var _ready_sdk := false
 var _ad_busy := false
 var _bridge: JavaScriptObject
@@ -54,6 +73,7 @@ var _on_ad_done: Callable
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	if not OS.has_feature("web"):
+		_mark_checked()
 		return
 	JavaScriptBridge.eval(BOOTSTRAP, true)
 	_bridge = JavaScriptBridge.get_interface("tbSdk")
@@ -66,6 +86,34 @@ func _ready() -> void:
 	_ready_sdk = bool(_bridge.ready)
 	if _ready_sdk and bool(_bridge.muted):
 		Audio.set_muted(true)
+	_mark_checked()
+
+
+func _mark_checked() -> void:
+	checked = true
+	sdk_checked.emit()
+
+
+## Espera a que se sepa si el SDK está disponible. Sin web, vuelve enseguida.
+func wait_checked() -> void:
+	if not checked:
+		await sdk_checked
+
+
+# --- Data Module: copia del guardado en CrazyGames (sigue al jugador si inicia sesión) ---
+
+func data_get(key: String) -> String:
+	return str(_bridge.dataGet(key)) if _ready_sdk else ""
+
+
+func data_set(key: String, value: String) -> void:
+	if _ready_sdk:
+		_bridge.dataSet(key, value)
+
+
+func data_remove(key: String) -> void:
+	if _ready_sdk:
+		_bridge.dataRemove(key)
 
 
 func is_active() -> bool:
@@ -85,13 +133,13 @@ func happy_time() -> void:
 
 
 func rewarded_available() -> bool:
-	return _ready_sdk and not _ad_busy
+	return ADS_ENABLED and _ready_sdk and not _ad_busy
 
 
 ## Pide un anuncio ("rewarded" o "midgame"). on_done(ok) se llama siempre, una vez:
 ## ok es true solo si el anuncio terminó (en un rewarded, solo entonces se premia).
 func request_ad(type: String, on_done: Callable = Callable()) -> void:
-	if not _ready_sdk or _ad_busy:
+	if not ADS_ENABLED or not _ready_sdk or _ad_busy:
 		if on_done.is_valid():
 			on_done.call(false)
 		return
