@@ -74,5 +74,6 @@ newest copy wins on startup.
 
 ## Credits
 
-Fonts are third-party and listed in [LICENSES.md](LICENSES.md). Sprites, icons and
+All rights reserved: see [LICENSE](LICENSE). Fonts are third-party and listed in
+[LICENSES.md](LICENSES.md). Sprites, icons and
 backdrops are drawn in code by the project itself.
