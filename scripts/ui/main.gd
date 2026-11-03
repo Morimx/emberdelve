@@ -277,7 +277,7 @@ func _show_rewards() -> void:
 			&"item":
 				var item: ItemData = r.item
 				var color: Color = Loot.RARITY_COLORS[item.rarity]
-				_add_card(SpriteBank.icon(item.slot), tr(item.display_name), _item_stats(item), tr(Loot.RARITY_NAMES[item.rarity]), color, _on_reward.bind(i), color.lightened(0.3))
+				_add_card(SpriteBank.icon(item.icon_id()), tr(item.display_name), _item_stats(item), tr(Loot.RARITY_NAMES[item.rarity]), color, _on_reward.bind(i), color.lightened(0.3))
 			&"supplies":
 				_add_card(SpriteBank.icon(&"torch"), tr("Supplies"), tr("+%d light and %d gold.") % [Expedition.SUPPLIES_TORCH, r.gold], tr("+%d light") % Expedition.SUPPLIES_TORCH, UiSkin.TORCH, _on_reward.bind(i))
 			&"rest":
@@ -301,7 +301,7 @@ func _show_result() -> void:
 		tr("You keep %d%%.  Rooms %d/%d  ·  Gold +%d  ·  Shards +%d  ·  Items kept %d of %d") % [int(kept.ratio * 100), kept.steps, Expedition.STEPS, kept.gold, kept.shards, kept.items.size(), expedition.items.size()],
 	]
 	for item: ItemData in summary.equipped:
-		lines.append(tr("Equipped: %s") % item.describe())
+		lines.append(tr("Equipped: %s") % _item_line(item))
 	if summary.stashed > 0:
 		lines.append(tr("%d items went to the armory stash.") % summary.stashed)
 	if summary.salvage > 0:
@@ -586,7 +586,7 @@ func _animate_chest(foot: Vector2, item: ItemData, gold_amount: int) -> void:
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glow.position = foot - Vector2(75, 160) - _fx.global_position
 	_fx.add_child(glow)
-	var icon := _fx_sprite(item.slot, foot - Vector2(0, 60), 52.0)
+	var icon := _fx_sprite(item.icon_id(), foot - Vector2(0, 60), 52.0)
 	create_tween().tween_property(icon, "position:y", icon.position.y - 40.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_float_at(foot - Vector2(0, 150), "%s · %s" % [tr(item.display_name), tr(Loot.RARITY_NAMES[item.rarity])], color.lightened(0.3), true)
 	_float_at(foot - Vector2(-90, 60), "+%d" % gold_amount, UiSkin.GOLD)
@@ -660,7 +660,7 @@ func _show_event_result(result: Dictionary) -> void:
 			var item: ItemData = result.item
 			var color: Color = Loot.RARITY_COLORS[item.rarity]
 			_set_text(tr("Forgotten chest!"), tr("You found an item and %d gold.") % result.gold, UiSkin.GOLD)
-			_add_card(SpriteBank.icon(item.slot), tr(item.display_name), _item_stats(item), tr(Loot.RARITY_NAMES[item.rarity]), color, _show_next.bind(""), color.lightened(0.3))
+			_add_card(SpriteBank.icon(item.icon_id()), tr(item.display_name), _item_stats(item), tr(Loot.RARITY_NAMES[item.rarity]), color, _show_next.bind(""), color.lightened(0.3))
 		&"trap":
 			_set_text(tr("It's a trap!"), tr("Hidden spikes: the party loses 15% of its health."), UiSkin.DANGER)
 			_add_card(SpriteBank.icon(&"skull"), tr("Ouch"), tr("Patch up and keep moving. A rest or a camp will help."), tr("Continue"), UiSkin.DANGER, _show_next.bind(""))
@@ -935,6 +935,15 @@ func _set_text(title: String, body: String, title_color := UiSkin.GOLD) -> void:
 	_info.visible = body != ""
 
 
+## Nombre del objeto y quién lo usa, traducidos.
+func _item_line(item: ItemData) -> String:
+	return "%s (%s)" % [tr(item.display_name), _item_owner(item)]
+
+
+func _item_owner(item: ItemData) -> String:
+	return tr(GameData.hero(item.hero).display_name) if item.hero != &"" else tr("Any hero")
+
+
 func _item_stats(item: ItemData) -> String:
 	var parts: PackedStringArray = []
 	if item.attack > 0:
@@ -943,7 +952,7 @@ func _item_stats(item: ItemData) -> String:
 		parts.append(tr("+%d defense") % item.defense)
 	if item.max_hp > 0:
 		parts.append(tr("+%d health") % item.max_hp)
-	return ", ".join(parts) + "\n" + tr("Kept if you make it back.")
+	return "%s: %s\n%s" % [_item_owner(item), ", ".join(parts), tr("Kept if you make it back.")]
 
 
 func _show_party_only() -> void:

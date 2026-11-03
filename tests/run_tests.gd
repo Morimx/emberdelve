@@ -38,6 +38,9 @@ const TESTS: PackedStringArray = [
 	"test_spanish_covers_every_text",
 	"test_settings_roundtrip",
 	"test_locale_switches_language",
+	"test_class_gear_and_charms",
+	"test_meta_v6_moves_party_gear_to_heroes",
+	"test_run_item_boosts_only_its_hero",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -220,16 +223,12 @@ func test_rarity_distribution() -> bool:
 
 func test_meta_equips_better_items() -> bool:
 	var meta := MetaState.new()
-	var first := ItemData.new()
-	first.slot = &"weapon"
-	first.attack = 2
-	var second := ItemData.new()
-	second.slot = &"weapon"
-	second.attack = 9
-	second.rarity = 2
+	var first := Loot.make_item(&"dagger", 0, 1)
+	var second := Loot.make_item(&"twin_daggers", 2, 1)
 	var summary := meta.apply_run({"gold": 10, "items": [first, second], "steps": 4, "run_id": "abc"})
-	_check(meta.equipped[&"weapon"] == first and meta.stash == [second] and summary.stashed == 1, "un slot vacío se equipa solo; el resto va al depósito")
-	_check(meta.equip_from_stash(0) and meta.equipped[&"weapon"] == second and meta.stash == [first], "equipar desde el depósito intercambia con el equipado")
+	_check(meta.gear(&"assassin", &"weapon") == first and meta.stash == [second] and summary.stashed == 1, "un slot vacío de su héroe se equipa solo; el resto va al depósito")
+	_check(meta.gear(&"warrior", &"weapon") == null, "una daga no la equipa el guerrero")
+	_check(meta.equip_from_stash(0) and meta.gear(&"assassin", &"weapon") == second and meta.stash == [first], "equipar desde el depósito intercambia con el equipado")
 	var gold_before := meta.gold
 	_check(meta.salvage_from_stash(0) > 0 and meta.stash.is_empty() and meta.gold > gold_before, "desguazar da oro y vacía el lugar")
 	_check(meta.last_run_id == "abc" and meta.best_step == 4, "el progreso recuerda la última expedición cobrada")
@@ -241,14 +240,13 @@ func test_meta_save_roundtrip() -> bool:
 	var meta := MetaState.new()
 	meta.gold = 321
 	meta.talents = {"ember": 1, "torchbearer": 2}
-	var item := ItemData.new()
-	item.slot = &"armor"
-	item.defense = 4
-	item.rarity = 3
-	meta.equipped[&"armor"] = item
+	var item := Loot.make_item(&"robe", 3, 2)
+	meta.stash.append(item)
+	meta.equip_from_stash(0)
 	var err := meta.save(TMP)
 	var loaded := MetaState.load_from(TMP)
-	_check(err == OK and loaded.gold == 321 and loaded.torch_start(GameData.talents()) == MetaState.BASE_TORCH + 2 and loaded.equipped[&"armor"].defense == 4, "guardar y cargar conserva el progreso")
+	var robe := loaded.gear(&"cleric", &"armor")
+	_check(err == OK and loaded.gold == 321 and loaded.torch_start(GameData.talents()) == MetaState.BASE_TORCH + 2 and robe != null and robe.max_hp == item.max_hp and robe.base == &"robe", "guardar y cargar conserva el progreso y el equipo por héroe")
 	_check(not FileAccess.file_exists(TMP + ".tmp"), "no queda archivo temporal tras guardar")
 	return true
 
@@ -273,7 +271,7 @@ func test_meta_migrates_v1() -> bool:
 	_write_raw(TMP, JSON.stringify({"version": 1, "gold": 77, "runs": 3, "equipped": {"weapon": legacy_sword}}))
 	var loaded := MetaState.load_from(TMP)
 	_check(loaded.gold == 77 and loaded.runs == 3 and loaded.last_run_id == "" and loaded.to_dict().version == MetaState.SAVE_VERSION, "un guardado v1 migra a la versión actual")
-	_check(loaded.equipped[&"weapon"].display_name == "Sword", "los objetos guardados en español pasan a inglés")
+	_check(loaded.gear(&"warrior", &"weapon") != null and loaded.gear(&"warrior", &"weapon").display_name == "Sword", "los objetos guardados en español pasan a inglés y a su héroe")
 	return true
 
 
@@ -506,4 +504,48 @@ func test_locale_switches_language() -> bool:
 	Locale.apply("en")
 	var en := TranslationServer.translate("Camp") == "Camp"
 	_check(es and en and Locale.current() == "en", "el idioma cambia entre español e inglés")
+	return true
+
+
+func test_class_gear_and_charms() -> bool:
+	var meta := MetaState.new()
+	meta.stash.append(Loot.make_item(&"staff", 1, 2))
+	_check(not meta.equip_from_stash(0, &"warrior") or meta.gear(&"cleric", &"weapon") != null, "un bastón va siempre al clérigo")
+	_check(meta.gear(&"cleric", &"weapon") != null and meta.gear(&"warrior", &"weapon") == null, "el bastón quedó en el clérigo")
+	meta.stash.append(Loot.make_item(&"ring", 1, 2))
+	_check(not meta.equip_from_stash(0), "un amuleto necesita elegir héroe")
+	_check(meta.equip_from_stash(0, &"assassin") and meta.gear(&"assassin", &"charm") != null, "un amuleto lo equipa cualquiera")
+	var bonus := meta.hero_bonus(GameData.talents())
+	var cleric := Unit.from_hero(GameData.hero(&"cleric"), bonus)
+	var warrior := Unit.from_hero(GameData.hero(&"warrior"), bonus)
+	var bare := meta.hero_bonus(GameData.talents())
+	bare.erase("gear")
+	_check(cleric.max_hp > Unit.from_hero(GameData.hero(&"cleric"), bare).max_hp and warrior.max_hp == Unit.from_hero(GameData.hero(&"warrior"), bare).max_hp, "el equipo solo potencia a quien lo lleva")
+	for base in Loot.BASES:
+		var it := Loot.make_item(base, 0, 0)
+		_check(it.power() > 0 and SpriteBank.has_sprite(base), "el tipo %s da algo y tiene icono" % base)
+	return true
+
+
+func test_meta_v6_moves_party_gear_to_heroes() -> bool:
+	SaveIO.remove(TMP)
+	var old_dagger := {"display_name": "Dagger", "rarity": 1, "slot": "weapon", "attack": 3, "defense": 0, "max_hp": 0}
+	var old_cuirass := {"display_name": "Cuirass", "rarity": 0, "slot": "armor", "attack": 0, "defense": 2, "max_hp": 8}
+	var old_ring := {"display_name": "Ring", "rarity": 2, "slot": "charm", "attack": 1, "defense": 0, "max_hp": 6}
+	_write_raw(TMP, JSON.stringify({"version": 5, "gold": 5, "equipped": {"weapon": old_dagger, "armor": old_cuirass, "charm": old_ring}, "stash": [old_dagger]}))
+	var loaded := MetaState.load_from(TMP)
+	_check(loaded.gear(&"assassin", &"weapon") != null and loaded.gear(&"assassin", &"weapon").attack == 3, "v5 a v6: la daga pasa al asesino con sus valores")
+	_check(loaded.gear(&"warrior", &"armor") != null and loaded.gear(&"warrior", &"charm") != null, "v5 a v6: coraza y amuleto pasan al guerrero")
+	_check(loaded.stash.size() == 1 and loaded.stash[0].hero == &"assassin", "v5 a v6: el depósito también se convierte")
+	return true
+
+
+func test_run_item_boosts_only_its_hero() -> bool:
+	var ex := GameData.new_expedition(MetaState.new(), 11)
+	var before := {}
+	for u in ex.party:
+		before[u.id] = u.attack
+	ex._add_item(Loot.make_item(&"axe", 2, 3))
+	var changed := ex.party.filter(func(u: Unit) -> bool: return u.attack != before[u.id])
+	_check(changed.size() == 1 and changed[0].id == &"warrior", "un hacha en la expedición solo potencia al guerrero")
 	return true

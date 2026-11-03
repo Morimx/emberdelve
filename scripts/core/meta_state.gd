@@ -6,7 +6,8 @@ const SAVE_PATH := "user://save.json"
 ## v1: formato del prototipo inicial. v2: agrega last_run_id. v3: nombres de objetos en inglés.
 ## v4: las mejoras sueltas (ataque, vida, antorcha) pasan a la constelación de talentos.
 ## v5: mazmorras vencidas, depósito de objetos, niveles de habilidad y ajustes.
-const SAVE_VERSION := 5
+## v6: equipo por héroe (héroe -> slot -> objeto) y tipos de objeto por clase.
+const SAVE_VERSION := 6
 const STASH_MAX := 24
 const MAX_SKILL_LEVEL := 5
 const LEGACY_ITEM_NAMES := {
@@ -26,7 +27,7 @@ var best_step := 0
 var last_run_id := ""
 ## true si el guardado en disco es de una versión más nueva del juego: no se sobrescribe.
 var newer_save := false
-## slot -> ItemData. El objeto de cada slot equipa a todo el grupo.
+## id de héroe -> slot -> ItemData. Cada héroe tiene su arma, armadura y amuleto.
 var equipped := {}
 ## Objetos conservados sin equipar; se equipan o desguazan en la armería.
 var stash: Array[ItemData] = []
@@ -68,17 +69,46 @@ func upgrade_skill(hero_id: StringName) -> bool:
 
 # --- armería ---------------------------------------------------------------------
 
-## Equipa el objeto del depósito; el que estaba en ese slot vuelve al depósito.
-func equip_from_stash(index: int) -> bool:
+func gear(hero_id: StringName, slot: StringName) -> ItemData:
+	return equipped.get(hero_id, {}).get(slot)
+
+
+static func hero_ids() -> Array[StringName]:
+	var ids: Array[StringName] = []
+	for h: HeroData in GameData.HEROES:
+		ids.append(h.id)
+	return ids
+
+
+## Equipa el objeto del depósito en su héroe (los amuletos, en hero_id); lo que había
+## en ese slot vuelve al depósito.
+func equip_from_stash(index: int, hero_id: StringName = &"") -> bool:
 	if index < 0 or index >= stash.size():
 		return false
 	var item := stash[index]
-	var previous: ItemData = equipped.get(item.slot)
-	equipped[item.slot] = item
+	var target := item.hero if item.hero != &"" else hero_id
+	if target == &"" or not item.can_equip(target) or not target in hero_ids():
+		return false
+	var previous := gear(target, item.slot)
+	_set_gear(target, item)
 	stash.remove_at(index)
 	if previous != null:
 		stash.insert(index, previous)
 	return true
+
+
+func _set_gear(hero_id: StringName, item: ItemData) -> void:
+	if not equipped.has(hero_id):
+		equipped[hero_id] = {}
+	equipped[hero_id][item.slot] = item
+
+
+## Héroe con el slot libre para este objeto, o &"" si no hay ninguno.
+func _free_hero_for(item: ItemData) -> StringName:
+	for id in hero_ids():
+		if item.can_equip(id) and gear(id, item.slot) == null:
+			return id
+	return &""
 
 
 func salvage_from_stash(index: int) -> int:
@@ -150,15 +180,21 @@ func hero_bonus(catalog: Array[TalentData]) -> Dictionary:
 			var key := String(t.stat)
 			bonus[key] = bonus.get(key, 0.0) + t.value * lvl
 	bonus.defense = int(bonus.defense)
-	for item: ItemData in equipped.values():
-		bonus.attack += item.attack
-		bonus.defense += item.defense
-		bonus.max_hp += item.max_hp
+	# Equipo: suma propia de cada héroe (Unit.from_hero la lee con su id).
+	var per_hero := {}
+	for hero_id in equipped:
+		var sum := {"attack": 0, "defense": 0, "max_hp": 0}
+		for item: ItemData in equipped[hero_id].values():
+			sum.attack += item.attack
+			sum.defense += item.defense
+			sum.max_hp += item.max_hp
+		per_hero[hero_id] = sum
+	bonus["gear"] = per_hero
 	bonus["skill_levels"] = skill_levels.duplicate()
 	return bonus
 
 
-## Suma lo conservado. Un objeto ocupa su slot si está vacío; si no, va al depósito.
+## Suma lo conservado. Un objeto ocupa el slot libre de su héroe; si no hay, va al depósito.
 ## Con el depósito lleno, el objeto de menor poder se desguaza en oro.
 func apply_run(kept: Dictionary) -> Dictionary:
 	runs += 1
@@ -175,8 +211,9 @@ func apply_run(kept: Dictionary) -> Dictionary:
 	var stashed := 0
 	var salvage := 0
 	for item: ItemData in kept.get("items", []):
-		if equipped.get(item.slot) == null:
-			equipped[item.slot] = item
+		var target := _free_hero_for(item)
+		if target != &"":
+			_set_gear(target, item)
 			equipped_now.append(item)
 		else:
 			stash.append(item)
@@ -192,8 +229,11 @@ func apply_run(kept: Dictionary) -> Dictionary:
 
 func to_dict() -> Dictionary:
 	var eq := {}
-	for slot in equipped:
-		eq[String(slot)] = equipped[slot].to_dict()
+	for hero_id in equipped:
+		var slots := {}
+		for slot in equipped[hero_id]:
+			slots[String(slot)] = equipped[hero_id][slot].to_dict()
+		eq[String(hero_id)] = slots
 	return {
 		"version": SAVE_VERSION, "gold": gold, "shards": shards, "talents": talents.duplicate(),
 		"runs": runs, "best_step": best_step, "last_run_id": last_run_id, "equipped": eq,
@@ -236,6 +276,29 @@ static func migrate(d: Dictionary) -> Dictionary:
 		d["stash"] = []
 		d["skill_levels"] = {}
 		v = 5
+	if v < 6:
+		# El equipo de grupo (slot -> objeto) pasa a su héroe según el tipo del objeto.
+		var by_hero := {}
+		var old_eq = d.get("equipped", {})
+		var leftovers: Array = []
+		if old_eq is Dictionary:
+			for slot in old_eq:
+				if old_eq[slot] is Dictionary:
+					var item := ItemData.from_dict(old_eq[slot])
+					var hero := String(item.hero) if item.hero != &"" else "warrior"
+					if not by_hero.has(hero):
+						by_hero[hero] = {}
+					if by_hero[hero].has(String(item.slot)):
+						leftovers.append(item.to_dict())
+					else:
+						by_hero[hero][String(item.slot)] = item.to_dict()
+		d["equipped"] = by_hero
+		var stash_list: Array = []
+		for raw in d.get("stash", []):
+			if raw is Dictionary:
+				stash_list.append(ItemData.from_dict(raw).to_dict())
+		d["stash"] = stash_list + leftovers
+		v = 6
 	d["version"] = v
 	return d
 
@@ -253,9 +316,14 @@ static func from_dict(d: Dictionary) -> MetaState:
 	m.last_run_id = str(d.get("last_run_id", ""))
 	var eq = d.get("equipped", {})
 	if eq is Dictionary:
-		for slot in eq:
-			if eq[slot] is Dictionary:
-				m.equipped[StringName(slot)] = ItemData.from_dict(eq[slot])
+		for hero_id in eq:
+			if not eq[hero_id] is Dictionary:
+				continue
+			for slot in eq[hero_id]:
+				if eq[hero_id][slot] is Dictionary:
+					var item := ItemData.from_dict(eq[hero_id][slot])
+					if item.can_equip(StringName(hero_id)):
+						m._set_gear(StringName(hero_id), item)
 	for item_data in d.get("stash", []):
 		if item_data is Dictionary:
 			m.stash.append(ItemData.from_dict(item_data))

@@ -325,14 +325,28 @@ func _heal_party(fraction: float) -> void:
 			u.hp = mini(u.max_hp, u.hp + int(u.max_hp * fraction))
 
 
+## El objeto potencia durante la expedición solo a su héroe; un amuleto, al héroe
+## con menos vida máxima (el más frágil).
 func _add_item(item: ItemData) -> void:
 	items.append(item)
+	var u := wearer_of(item)
+	if u == null:
+		return
+	u.attack += item.attack
+	u.defense += item.defense
+	u.max_hp += item.max_hp
+	if u.is_alive():
+		u.hp += item.max_hp
+
+
+func wearer_of(item: ItemData) -> Unit:
+	var best: Unit = null
 	for u in party:
-		u.attack += item.attack
-		u.defense += item.defense
-		u.max_hp += item.max_hp
-		if u.is_alive():
-			u.hp += item.max_hp
+		if item.hero != &"" and u.id == item.hero:
+			return u
+		if item.hero == &"" and (best == null or u.max_hp < best.max_hp):
+			best = u
+	return best
 
 
 func _add_boon(boon: BoonData) -> void:

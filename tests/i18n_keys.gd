@@ -32,9 +32,8 @@ static func collect() -> PackedStringArray:
 		keys[v] = true
 	for v in Loot.SLOT_NAMES.values():
 		keys[v] = true
-	for names in Loot.BASE_NAMES.values():
-		for v in names:
-			keys[v] = true
+	for def in Loot.BASES.values():
+		keys[def.name] = true
 	for v in load("res://scripts/ui/main.gd").OUTCOME_TEXT.values():
 		keys[v] = true
 	for v in TalentScreen.BRANCH_NAMES.values():

@@ -55,6 +55,13 @@ static func heroes() -> Array[HeroData]:
 	return out
 
 
+static func hero(id: StringName) -> HeroData:
+	for h: HeroData in HEROES:
+		if h.id == id:
+			return h
+	return null
+
+
 static func enemies() -> Array[EnemyData]:
 	var out: Array[EnemyData] = []
 	out.assign(ENEMIES)
