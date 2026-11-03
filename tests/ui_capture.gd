@@ -34,10 +34,33 @@ func _initialize() -> void:
 	await _frames(5)
 	_shot("1e_dungeons")
 
+	main._show_camp("")
+	await create_timer(1.0).timeout
+	_shot("1f_camp_keeper")
+
 	main.speed_index = 1
 	main._start_expedition()
 	await _frames(10)
 	_shot("2_doors")
+
+	# Eventos de sala, armados a mano para ver cada animación y su carta de resultado.
+	var ex: Expedition = main.expedition
+	var events := [
+		{"event": &"chest", "item": Loot.roll_item(ex.rng, 3, 2), "gold": 30},
+		{"event": &"trap", "damage": {ex.party[0]: 25, ex.party[1]: 17, ex.party[2]: 15}},
+		{"event": &"shrine", "light": 1},
+	]
+	for ev in events:
+		main._play_event(ev)
+		await create_timer(0.9).timeout
+		_shot("2b_event_%s" % ev.event)
+		while main._cards.has_meta("busy"):
+			await process_frame
+		main._show_event_result(ev)
+		await create_timer(0.5).timeout
+		_shot("2c_result_%s" % ev.event)
+	main._show_doors("")
+	await _frames(5)
 
 	main._on_door(&"combat")
 	await create_timer(1.4).timeout

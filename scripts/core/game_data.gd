@@ -89,10 +89,10 @@ static func dungeon(id: StringName) -> DungeonData:
 static func new_expedition(meta: MetaState, seed_value: int, dungeon_id: StringName = &"catacombs") -> Expedition:
 	var catalog := talents()
 	var d := dungeon(dungeon_id)
-	return Expedition.new(heroes(), d.enemies, d.boss, boons(), meta.hero_bonus(catalog), meta.torch_start(catalog), seed_value, d.difficulty, d.id, d.boss_shards)
+	return Expedition.new(heroes(), d.enemies, d.boss, boons(), meta.hero_bonus(catalog), meta.torch_start(catalog), seed_value, d.difficulty, d.id, d.boss_shards, d.boss_power)
 
 
 static func restore_expedition(data: Dictionary) -> Expedition:
 	var d := dungeon(StringName(str(data.get("dungeon", "catacombs"))))
-	var ex := Expedition.new(heroes(), d.enemies, d.boss, boons(), {}, 0, 0, d.difficulty, d.id, d.boss_shards)
+	var ex := Expedition.new(heroes(), d.enemies, d.boss, boons(), {}, 0, 0, d.difficulty, d.id, d.boss_shards, d.boss_power)
 	return ex if ex.apply_state(data) else null

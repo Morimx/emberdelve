@@ -26,6 +26,8 @@ const BOON_ICONS := {
 	&"heal_pct": &"cross", &"torch": &"torch",
 }
 const BOON_COLOR := Color("b065ec")
+## Escenario del fondo según el tipo de sala.
+const ROOM_SCENES := {&"combat": &"corridor", &"elite": &"elite", &"event": &"shrine", &"camp": &"camp", &"boss": &"boss"}
 const CLOUD_SAVE_KEY := "emberdelve_save"
 const CLOUD_RUN_KEY := "emberdelve_run"
 
@@ -41,6 +43,10 @@ var unit_views := {}
 var trauma := 0.0
 var _shake_t := 0.0
 var _talents: TalentScreen
+## Momento (ms) del último globo de diálogo: evita que hablen todos a la vez.
+var _last_bubble := 0
+## Héroes que ya se quejaron de poca vida en este combate.
+var _complained := {}
 ## Se ofreció un anuncio recompensado al terminar la expedición: entonces no se pide un
 ## midgame antes de la siguiente (regla de CrazyGames: no ambos entre los mismos niveles).
 var _rewarded_offered := false
@@ -123,13 +129,15 @@ func _show_camp(message: String) -> void:
 	Audio.play_music(&"camp")
 	Platform.gameplay_stop()
 	var home := GameData.dungeon(&"catacombs")
-	_backdrop.set_palette(home.wall_tint, home.floor_color)
+	_backdrop.set_biome(home.biome, home.wall_tint, home.floor_color)
 	_backdrop.set_campfire(true)
 	_backdrop.set_light(1.0)
 	var catalog := GameData.talents()
 	for h in GameData.heroes():
 		var u := Unit.from_hero(h, meta.hero_bonus(catalog))
 		_add_unit_view(u, _party_row, u.hp)
+	var keeper := _add_npc(&"keeper", _enemy_row)
+	_say_later(keeper, &"keeper", &"camp", UiSkin.TORCH, 0.6)
 	_set_text(tr("Camp"), message if message != "" else tr("Gold %d  ·  Shards %d  ·  Expeditions %d  ·  Deepest room %d/%d") % [meta.gold, meta.shards, meta.runs, meta.best_step, Expedition.STEPS])
 	_clear_cards()
 	var open_count := 0
@@ -205,6 +213,7 @@ func _show_next(message: String = "") -> void:
 
 func _show_doors(message: String) -> void:
 	_update_hud()
+	_backdrop.set_scene(&"corridor")
 	_show_party_only()
 	_set_text(tr(expedition.floor_label()), message if message != "" else tr("Choose the next door, or retreat with all your loot."))
 	_clear_cards()
@@ -344,7 +353,7 @@ func _attach(ex: Expedition) -> void:
 	Audio.play_music(&"dungeon")
 	Platform.gameplay_start()
 	var d := GameData.dungeon(ex.dungeon_id)
-	_backdrop.set_palette(d.wall_tint, d.floor_color)
+	_backdrop.set_biome(d.biome, d.wall_tint, d.floor_color)
 
 
 func _save_run() -> void:
@@ -358,6 +367,7 @@ func _save_run() -> void:
 func _on_door(kind: StringName) -> void:
 	_clear_cards()
 	Audio.play(&"door")
+	_backdrop.set_scene(ROOM_SCENES.get(kind, &"corridor"))
 	var result := expedition.enter(kind)
 	if result.has("error"):
 		_show_doors(result.error)
@@ -365,6 +375,12 @@ func _on_door(kind: StringName) -> void:
 	if result.has("combat"):
 		await _play_combat(result)
 	if expedition.finished:
+		return
+	if result.has("event"):
+		await _play_event(result)
+		if expedition.finished:
+			return
+		_show_event_result(result)
 		return
 	_show_next(tr(result.get("text", "")))
 
@@ -413,6 +429,8 @@ func _play_combat(result: Dictionary) -> void:
 	await get_tree().process_frame  # que el layout ubique las vistas antes del primer número
 
 	var boss_fight: bool = result.kind == &"boss"
+	_complained.clear()
+	_combat_banter(result, boss_fight)
 	var last_t := 0.0
 	for e: Dictionary in result.combat.events:
 		if not skipping:
@@ -429,6 +447,8 @@ func _play_combat(result: Dictionary) -> void:
 			view.set_hp(u.hp)
 	if result.combat.won:
 		_float_at(_party_row.get_global_rect().get_center() - Vector2(0, 70), tr("Victory"), UiSkin.GOLD, true)
+		if not skipping and randf() < 0.5:
+			_say_random_hero(&"victory", 1.0)
 		if result.get("xp", 0) > 0:
 			_float_at(_party_row.get_global_rect().get_center() - Vector2(0, 30), tr("LEVEL UP!"), BOON_COLOR, true)
 	_set_text(tr("Victory") if result.combat.won else tr("Defeat"), "")
@@ -453,7 +473,12 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 			if target:
 				target.hurt(Color(1, 0.85, 0.3) if e.crit else Color(1, 0.4, 0.4), e.crit)
 				_float_at(target.hit_point(), ("%d!" if e.crit else "%d") % e.amount, UiSkin.GOLD if e.crit else UiSkin.TEXT, e.crit)
+			if target and not e.dst.is_enemy and e.hp > 0 and float(e.hp) / e.dst.max_hp < 0.3 and not _complained.has(e.dst):
+				_complained[e.dst] = true
+				_say(target, e.dst.id, &"low_hp", UiSkin.DANGER)
 			if e.crit:
+				if source and not e.src.is_enemy and randf() < 0.15:
+					_say(source, e.src.id, &"crit", UiSkin.GOLD)
 				_add_trauma(0.4)
 				return 0.08
 			_add_trauma(0.22 if boss_fight and e.src.is_enemy else 0.08)
@@ -489,6 +514,226 @@ func _float_at(global_point: Vector2, text: String, color: Color, big := false) 
 
 func _add_trauma(amount: float) -> void:
 	trauma = clampf(trauma + amount, 0.0, 1.0)
+
+
+# --- eventos de sala ----------------------------------------------------------
+
+## Anima el evento (cofre, trampa o santuario) en la arena antes de mostrar el resultado.
+func _play_event(result: Dictionary) -> void:
+	_cards.set_meta("busy", true)
+	_show_party_only()
+	_set_text(tr("Something stirs..."), "")
+	_backdrop.set_scene(&"shrine" if result.event == &"shrine" else &"corridor")
+	await get_tree().process_frame
+	var stage := _lanes.get_global_rect()
+	match result.event:
+		&"chest":
+			await _animate_chest(Vector2(stage.position.x + stage.size.x * 0.27, stage.end.y - 10), result.item, result.gold)
+		&"trap":
+			await _animate_trap(result.damage)
+		&"shrine":
+			await _animate_shrine(Vector2(stage.get_center().x, stage.end.y - 10), result.light)
+	_update_hud()
+	_cards.remove_meta("busy")
+
+
+func _animate_chest(foot: Vector2, item: ItemData, gold_amount: int) -> void:
+	var chest := _fx_sprite(&"chest", foot, 84.0)
+	var tw := create_tween()
+	for i in 3:
+		tw.tween_property(chest, "rotation", 0.12, 0.06)
+		tw.tween_property(chest, "rotation", -0.12, 0.06)
+	tw.tween_property(chest, "rotation", 0.0, 0.05)
+	await tw.finished
+	chest.texture = SpriteBank.texture(&"chest_open")
+	chest.scale = Vector2(1.2, 0.85)
+	create_tween().tween_property(chest, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	Audio.play(&"coin")
+	_add_trauma(0.2)
+	# Monedas que vuelan hacia el contador de oro del HUD.
+	var target := _gold_label.get_global_rect().get_center()
+	for i in 7:
+		var coin := _fx_sprite(&"coin", foot - Vector2(0, 50), 18.0)
+		var mid := foot + Vector2(randf_range(-70, 70), randf_range(-130, -90))
+		var ctw := create_tween()
+		ctw.tween_interval(i * 0.05)
+		ctw.tween_property(coin, "position", mid - _fx.global_position, 0.25).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		ctw.tween_property(coin, "position", target - _fx.global_position, 0.4).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+		ctw.tween_callback(coin.queue_free)
+	# El objeto sube con el brillo de su rareza.
+	var color: Color = Loot.RARITY_COLORS[item.rarity]
+	var glow := TextureRect.new()
+	glow.texture = DungeonBackdrop._radial(Color(color.r, color.g, color.b, 0.8))
+	glow.size = Vector2(150, 150)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glow.position = foot - Vector2(75, 160) - _fx.global_position
+	_fx.add_child(glow)
+	var icon := _fx_sprite(item.slot, foot - Vector2(0, 60), 52.0)
+	create_tween().tween_property(icon, "position:y", icon.position.y - 40.0, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_float_at(foot - Vector2(0, 150), "%s · %s" % [tr(item.display_name), tr(Loot.RARITY_NAMES[item.rarity])], color.lightened(0.3), true)
+	_float_at(foot - Vector2(-90, 60), "+%d" % gold_amount, UiSkin.GOLD)
+	await get_tree().create_timer(1.3).timeout
+	for n: Control in [chest, glow, icon]:
+		var fade := create_tween()
+		fade.tween_property(n, "modulate:a", 0.0, 0.25)
+		fade.tween_callback(n.queue_free)
+
+
+func _animate_trap(damage: Dictionary) -> void:
+	var party_rect := _party_row.get_global_rect()
+	var spikes := _fx_sprite(&"spikes", party_rect.end, 0.0)
+	spikes.stretch_mode = TextureRect.STRETCH_TILE
+	spikes.size = Vector2(party_rect.size.x, 40)
+	# A la altura de los pies (por encima de las barras de vida y los números).
+	spikes.position = Vector2(party_rect.position.x, party_rect.end.y - 20) - _fx.global_position
+	var tw := create_tween()
+	tw.tween_property(spikes, "position:y", spikes.position.y - 34.0, 0.08).set_ease(Tween.EASE_OUT)
+	await tw.finished
+	Audio.play(&"crit")
+	_add_trauma(0.55)
+	var flash := ColorRect.new()
+	flash.color = Color(0.85, 0.1, 0.1, 0.35)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.position = _lanes.get_global_rect().position - _fx.global_position
+	flash.size = _lanes.get_global_rect().size
+	_fx.add_child(flash)
+	var ftw := create_tween()
+	ftw.tween_property(flash, "color:a", 0.0, 0.4)
+	ftw.tween_callback(flash.queue_free)
+	for u in damage:
+		var view: UnitView = unit_views.get(u)
+		if view:
+			view.set_hp(u.hp)
+			view.hurt(Color(1, 0.35, 0.35), true)
+			_float_at(view.hit_point(), "%d" % damage[u], UiSkin.DANGER, true)
+	_say_random_hero(&"low_hp", 0.35)
+	await get_tree().create_timer(1.2).timeout
+	var stw := create_tween()
+	stw.tween_property(spikes, "modulate:a", 0.0, 0.3)
+	stw.tween_callback(spikes.queue_free)
+
+
+func _animate_shrine(foot: Vector2, light: int) -> void:
+	var spirit := _fx_sprite(&"spirit", foot - Vector2(0, 70), 64.0)
+	spirit.modulate = Color(0.7, 0.9, 1.4, 0.0)
+	var tw := create_tween()
+	tw.tween_property(spirit, "modulate:a", 0.9, 0.4)
+	tw.parallel().tween_property(spirit, "position:y", spirit.position.y - 16.0, 0.8).set_trans(Tween.TRANS_SINE)
+	await get_tree().create_timer(0.3).timeout
+	_say(spirit, &"spirit", &"shrine", Color("5fd6e8"), true)
+	Audio.play(&"levelup")
+	var torch_rect := _torch.get_global_rect()
+	_float_at(Vector2(torch_rect.get_center().x, torch_rect.end.y + 40), tr("+%d LIGHT") % light, UiSkin.TORCH, true)
+	_torch.pivot_offset = _torch.size / 2.0
+	var torch_tw := create_tween()
+	torch_tw.tween_property(_torch, "scale", Vector2(1.25, 1.25), 0.15)
+	torch_tw.tween_property(_torch, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK)
+	await get_tree().create_timer(1.6).timeout
+	var stw := create_tween()
+	stw.tween_property(spirit, "modulate:a", 0.0, 0.4)
+	stw.tween_callback(spirit.queue_free)
+
+
+## Carta de resultado del evento: deja claro qué pasó antes de seguir.
+func _show_event_result(result: Dictionary) -> void:
+	_clear_cards()
+	match result.event:
+		&"chest":
+			var item: ItemData = result.item
+			var color: Color = Loot.RARITY_COLORS[item.rarity]
+			_set_text(tr("Forgotten chest!"), tr("You found an item and %d gold.") % result.gold, UiSkin.GOLD)
+			_add_card(SpriteBank.icon(item.slot), tr(item.display_name), _item_stats(item), tr(Loot.RARITY_NAMES[item.rarity]), color, _show_next.bind(""), color.lightened(0.3))
+		&"trap":
+			_set_text(tr("It's a trap!"), tr("Hidden spikes: the party loses 15% of its health."), UiSkin.DANGER)
+			_add_card(SpriteBank.icon(&"skull"), tr("Ouch"), tr("Patch up and keep moving. A rest or a camp will help."), tr("Continue"), UiSkin.DANGER, _show_next.bind(""))
+		&"shrine":
+			_set_text(tr("A quiet shrine"), tr("A blue flame rekindles your torch: +%d light.") % result.light, Color("5fd6e8"))
+			_add_card(SpriteBank.icon(&"torch"), tr("Rekindled"), tr("The spirit of the shrine lends you its flame."), tr("+%d LIGHT") % result.light, UiSkin.TORCH, _show_next.bind(""))
+	_focus_first_card()
+
+
+# --- diálogos ----------------------------------------------------------------
+
+func _combat_banter(result: Dictionary, boss_fight: bool) -> void:
+	if boss_fight:
+		var boss_view: UnitView = unit_views.get(result.enemies[0])
+		if boss_view:
+			_say(boss_view, result.enemies[0].id, &"boss", UiSkin.DANGER, true)
+		_say_random_hero(&"boss", 1.0, 1.4)
+	elif randf() < 0.55:
+		if randf() < 0.35 and not result.enemies.is_empty():
+			var view: UnitView = unit_views.get(result.enemies[0])
+			if view:
+				_say(view, &"any", &"enter", UiSkin.DANGER)
+		else:
+			_say_random_hero(&"enter", 1.0)
+
+
+## Un héroe vivo al azar dice algo de ese contexto (con probabilidad chance).
+func _say_random_hero(context: StringName, chance: float, delay := 0.0) -> void:
+	if randf() > chance or expedition == null:
+		return
+	var alive: Array = expedition.party.filter(func(u: Unit) -> bool: return u.is_alive())
+	if alive.is_empty():
+		return
+	var u: Unit = alive[randi() % alive.size()]
+	var view: UnitView = unit_views.get(u)
+	if view == null:
+		return
+	if delay > 0.0:
+		_say_later(view, u.id, context, UiSkin.GOLD, delay)
+	else:
+		_say(view, u.id, context, UiSkin.GOLD)
+
+
+func _say_later(anchor: Control, speaker: StringName, context: StringName, accent: Color, delay: float) -> void:
+	await get_tree().create_timer(delay).timeout
+	if is_instance_valid(anchor) and anchor.is_inside_tree():
+		_say(anchor, speaker, context, accent, true)
+
+
+## Globo de diálogo sobre un personaje. force ignora la pausa mínima entre globos.
+func _say(anchor: Control, speaker: StringName, context: StringName, accent: Color, force := false) -> void:
+	if skipping:
+		return
+	var now := Time.get_ticks_msec()
+	if not force and now - _last_bubble < 1400:
+		return
+	var text := Dialogue.line(speaker, context)
+	if text == "":
+		return
+	_last_bubble = now
+	var rect := anchor.get_global_rect()
+	SpeechBubble.new().say(tr(text), Vector2(rect.get_center().x, rect.position.y), accent, _fx)
+
+
+func _add_npc(id: StringName, row: HBoxContainer) -> Control:
+	var npc := TextureRect.new()
+	npc.texture = SpriteBank.texture(id)
+	npc.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	npc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	npc.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	npc.custom_minimum_size = Vector2(96, 96)
+	npc.size_flags_vertical = Control.SIZE_SHRINK_END
+	npc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(npc)
+	return npc
+
+
+## Sprite temporal en la capa de efectos, con los pies en el punto dado (coordenadas globales).
+func _fx_sprite(id: StringName, foot: Vector2, side: float) -> TextureRect:
+	var r := TextureRect.new()
+	r.texture = SpriteBank.texture(id)
+	r.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if side > 0.0:
+		r.size = Vector2(side, side)
+		r.position = foot - Vector2(side / 2.0, side) - _fx.global_position
+		r.pivot_offset = Vector2(side / 2.0, side)
+	_fx.add_child(r)
+	return r
 
 
 # --- vistas ------------------------------------------------------------------
@@ -658,6 +903,9 @@ func _add_unit_view(u: Unit, row: HBoxContainer, hp: int) -> void:
 
 func _clear_arena() -> void:
 	unit_views.clear()
+	for child in _fx.get_children():
+		if child is SpeechBubble:
+			child.queue_free()
 	trauma = 0.0
 	_lanes.position = Vector2.ZERO
 	for row in [_enemy_row, _party_row]:
@@ -676,6 +924,14 @@ func _add_card(icon: Texture2D, title: String, body: String, footer: String, acc
 	var card: ChoiceCard = CHOICE_CARD.instantiate()
 	_cards.add_child(card)
 	card.setup(_cards.get_child_count(), icon, title, body, footer, accent, title_color)
+	# Entrada escalonada: cada carta aparece un instante después de la anterior.
+	card.modulate.a = 0.0
+	card.pivot_offset = card.custom_minimum_size / 2.0
+	card.scale = Vector2(0.85, 0.85)
+	var tw := card.create_tween()
+	tw.tween_interval(0.06 * (_cards.get_child_count() - 1))
+	tw.tween_property(card, "modulate:a", 1.0, 0.15)
+	tw.parallel().tween_property(card, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	card.pressed.connect(func() -> void: Audio.play(&"click"))
 	card.pressed.connect(callback)
 	return card

@@ -18,6 +18,8 @@ const SUPPLIES_TORCH := 2
 const REST_HEAL := 0.3
 const DOOR_WEIGHTS := {&"combat": 3.0, &"elite": 1.0, &"event": 2.0}
 const LEVELUP_CHOICES := 3
+## Cuánto más fuertes son los enemigos por cada sala de profundidad.
+const DEPTH_SCALING := 0.22
 ## Bonos de progreso permanente que afectan al combate (el resto ya está en las stats).
 const COMBAT_BONUS_KEYS: PackedStringArray = ["crit_chance", "lifesteal", "speed_pct", "skill_power_pct"]
 
@@ -52,14 +54,17 @@ var _run_bonus := {}
 var dungeon_id: StringName = &"catacombs"
 var difficulty := 1.0
 var boss_shards := 3
+## Multiplicador extra del jefe: el pico de dificultad de cada mazmorra.
+var boss_power := 1.6
 
 
-func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int, dungeon_difficulty := 1.0, dungeon := &"catacombs", shards_for_boss := 3) -> void:
+func _init(heroes: Array[HeroData], enemy_pool: Array[EnemyData], boss: EnemyData, boons: Array[BoonData], hero_bonus: Dictionary, torch_start: int, seed_value: int, dungeon_difficulty := 1.0, dungeon := &"catacombs", shards_for_boss := 3, boss_multiplier := 1.6) -> void:
 	rng.seed = seed_value
 	run_id = str(seed_value)
 	difficulty = dungeon_difficulty
 	dungeon_id = dungeon
 	boss_shards = shards_for_boss
+	boss_power = boss_multiplier
 	_enemy_pool = enemy_pool
 	_boss = boss
 	_boon_pool = boons
@@ -206,7 +211,7 @@ func _weighted_door(exclude: Array) -> StringName:
 
 func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	var depth := step - 1
-	var scale := (1.0 + 0.2 * depth) * difficulty
+	var scale := (1.0 + DEPTH_SCALING * depth) * difficulty
 	var enemies: Array[Unit] = []
 	match kind:
 		&"combat":
@@ -218,7 +223,7 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 			enemies.append(elite)
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 		&"boss":
-			enemies.append(Unit.from_enemy(_boss, difficulty))
+			enemies.append(Unit.from_enemy(_boss, difficulty * boss_power))
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 
 	var fighters: Array[Unit] = []
@@ -274,19 +279,30 @@ func _roll_levelup_options() -> void:
 
 
 func _resolve_event(result: Dictionary) -> void:
+	# result["event"] y los datos de cada caso los usa la UI para animar el evento.
 	match rng.randi_range(0, 2):
 		0:
 			_set_torch(torch + 1)
+			result["event"] = &"shrine"
+			result["light"] = 1
 			result["text"] = "Shrine: a blue flame rekindles the torch (+1 light)."
 		1:
+			var damage := {}
 			for u in party:
 				if u.is_alive():
+					var before := u.hp
 					u.hp = maxi(1, u.hp - int(u.max_hp * 0.15))
+					damage[u] = before - u.hp
+			result["event"] = &"trap"
+			result["damage"] = damage
 			result["text"] = "Trap: the party loses 15% of its health."
 		2:
 			var item := Loot.roll_item(rng, step)
 			_add_item(item)
 			gold += 30
+			result["event"] = &"chest"
+			result["item"] = item
+			result["gold"] = 30
 			result["text"] = "Forgotten chest: %s and 30 gold." % item.describe()
 
 
@@ -405,7 +421,7 @@ func to_dict() -> Dictionary:
 		"levelup_options": levelup_options.map(func(b: BoonData) -> String: return String(b.id)),
 		"run_bonus": _run_bonus.duplicate(),
 		"saved_at": Time.get_unix_time_from_system(),
-		"dungeon": String(dungeon_id), "difficulty": difficulty, "boss_shards": boss_shards,
+		"dungeon": String(dungeon_id), "difficulty": difficulty, "boss_shards": boss_shards, "boss_power": boss_power,
 	}
 
 
@@ -419,6 +435,7 @@ func apply_state(d: Dictionary) -> bool:
 	dungeon_id = StringName(str(d.get("dungeon", "catacombs")))
 	difficulty = float(d.get("difficulty", 1.0))
 	boss_shards = int(d.get("boss_shards", 3))
+	boss_power = float(d.get("boss_power", 1.0))
 	xp = int(d.get("xp", 0))
 	pending_levelups = int(d.get("pending_levelups", 0))
 	levelup_options.clear()
