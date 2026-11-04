@@ -21,6 +21,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	main.meta = _demo_meta()
+	Locale.apply("en")  # el video de la ficha va en inglés
 	main.speed_index = 1
 	main._show_camp("")
 	_run.call_deferred()
@@ -47,8 +48,9 @@ func _run() -> void:
 		var doors: Array = main.expedition.current_doors()
 		var pick: StringName = &"combat" if &"combat" in doors else (&"elite" if &"elite" in doors else doors[0])
 		main._on_door(pick)
-		await get_tree().process_frame
+		await _wait(0.4)  # el fundido de la puerta va antes de que empiece la sala
 		while main._cards.has_meta("busy"):
+			_cast_ready_skills()
 			await get_tree().process_frame
 		if main.expedition.finished:
 			return
@@ -58,6 +60,16 @@ func _run() -> void:
 			await _wait(1.0)
 		if not main.expedition.pending_rewards.is_empty():
 			main._on_reward(0)
+
+
+## Lanza las habilidades apenas están listas, como lo haría un jugador atento.
+func _cast_ready_skills() -> void:
+	var fight: Combat = main.expedition.fight if main.expedition else null
+	if fight == null:
+		return
+	for u: Unit in fight.party:
+		if fight.skill_ready(u):
+			fight.request_skill(u)
 
 
 func _wait(seconds: float) -> void:
@@ -87,6 +99,8 @@ func _demo_meta() -> MetaState:
 	m.shards = 6
 	m.talents = {"ember": 1, "might": 2, "vitality": 2, "keen_edge": 1}
 	m.skill_levels = {"warrior": 2, "cleric": 2, "assassin": 2}
+	m.runs = 3
+	m.tips_off = true  # sin consejos del tutorial en el video
 	return m
 
 

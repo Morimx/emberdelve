@@ -80,7 +80,7 @@ func _ready() -> void:
 			tiles.add_child(b)
 			_slot_buttons["%s/%s" % [h.id, slot]] = b
 		var stats := Label.new()
-		stats.add_theme_font_size_override("font_size", 13)
+		stats.add_theme_font_size_override("font_size", 14)
 		stats.add_theme_color_override("font_color", UiSkin.MUTED)
 		col.add_child(stats)
 		_stat_labels[h.id] = stats

@@ -94,7 +94,7 @@ func _ready() -> void:
 	Audio.set_muted(meta.muted)
 	Audio.set_volume(meta.volume)
 	_volume_slider.set_value_no_signal(meta.volume * 100.0)
-	Locale.apply(meta.language)
+	Locale.apply(meta.language, Platform.system_language())
 	_update_hud()
 	var resumed := RunStore.load_run(meta)
 	if resumed == null and meta.runs == 0 and meta.should_tip("start"):
@@ -418,12 +418,12 @@ func _show_scores(score: int, rank: int) -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 1)
 	panel.add_child(box)
-	var head := _label(box, tr("Your score: %d") % score, 17)
+	var head := _label(box, tr("Your score: %d") % score, 18)
 	head.add_theme_color_override("font_color", UiSkin.GOLD)
 	if rank == 0 and meta.scores.size() > 1:
-		var best := _label(box, tr("New best score!"), 13)
+		var best := _label(box, tr("New best score!"), 15)
 		best.add_theme_color_override("font_color", UiSkin.TORCH)
-	_label(box, tr("High scores"), 13).add_theme_color_override("font_color", UiSkin.MUTED)
+	_label(box, tr("High scores"), 15).add_theme_color_override("font_color", UiSkin.MUTED)
 	for i in mini(meta.scores.size(), SCORE_ROWS):
 		_score_row(box, i, i == rank)
 	if rank >= SCORE_ROWS:
@@ -435,7 +435,7 @@ func _score_row(parent: Node, index: int, highlight: bool) -> void:
 	var row := _label(parent, "%d. %d  %s  %s  %s" % [
 		index + 1, int(entry.score), tr(GameData.dungeon(StringName(entry.dungeon)).display_name),
 		tr("%d rooms") % int(entry.steps), Score.format_time(int(entry.seconds)),
-	], 12)
+	], 14)
 	row.add_theme_color_override("font_color", UiSkin.GOLD if highlight else UiSkin.TEXT)
 
 
@@ -570,21 +570,31 @@ func _play_combat(result: Dictionary) -> void:
 		skipping = true
 		fight.auto_delay = 0.0)
 	_cards.add_child(skip)
-	_coach("combat", _cards, tr("Your heroes attack on their own. Click a skill (or press 1-3) when it glows. S changes the speed."))
+	_coach("combat", skill_buttons[0] if not skill_buttons.is_empty() else skip, tr("Your heroes attack on their own. Click a skill (or press 1-3) when it glows. S changes the speed."))
 	await get_tree().process_frame  # que el layout ubique las vistas antes del primer número
 
 	var boss_fight: bool = result.kind == &"boss"
 	_complained.clear()
 	_combat_banter(result, boss_fight)
+	# Avanza según el tiempo real de cada cuadro (independiente de los FPS); al saltar,
+	# resuelve todo de una.
+	var budget := 0.0
 	while not fight.finished:
-		var pause := 0.0
-		for e: Dictionary in fight.step():
-			pause = maxf(pause, _apply_event(e, boss_fight))
 		if skipping:
+			for e: Dictionary in fight.step():
+				_apply_event(e, boss_fight)
 			continue
+		await get_tree().process_frame
+		budget = minf(budget + get_process_delta_time() * SPEEDS[speed_index], 0.5)
+		var pause := 0.0
+		while budget >= Combat.TICK and not fight.finished and not skipping:
+			budget -= Combat.TICK
+			for e: Dictionary in fight.step():
+				pause = maxf(pause, _apply_event(e, boss_fight))
 		for button in skill_buttons:
 			button.refresh(fight.skill_charge(button.unit), fight.skill_ready(button.unit), button.unit.is_alive())
-		await get_tree().create_timer((Combat.TICK + pause) / SPEEDS[speed_index]).timeout
+		if pause > 0.0 and not skipping:
+			await get_tree().create_timer(pause / SPEEDS[speed_index]).timeout
 	expedition.finish_combat()
 	for button in skill_buttons:
 		button.refresh(0.0, false, button.unit.is_alive())
@@ -1245,7 +1255,7 @@ func _stat_chip(parent: Node, id: StringName, icon_id: StringName, color: Color)
 	value.add_theme_font_size_override("font_size", 20)
 	value.add_theme_color_override("font_color", color.lightened(0.15))
 	col.add_child(value)
-	var caption := _label(col, "", 11)
+	var caption := _label(col, "", 13)
 	caption.add_theme_color_override("font_color", color.lerp(UiSkin.MUTED, 0.5))
 	_chips[id] = {"chip": chip, "value": value, "caption": caption}
 	return value

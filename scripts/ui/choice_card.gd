@@ -4,9 +4,9 @@ extends Button
 ## Sirve para puertas, recompensas, bendiciones y acciones del campamento.
 
 const TITLE_SIZE := 17
-const TITLE_MIN := 13
+const TITLE_MIN := 14
 const BODY_SIZE := 14
-const BODY_MIN := 12
+const BODY_MIN := 13
 const MARGIN_H := 24.0  # márgenes de los lados de Margin
 const MARGIN_V := 12.0  # márgenes de arriba y abajo de Margin
 const SEPARATION := 4.0

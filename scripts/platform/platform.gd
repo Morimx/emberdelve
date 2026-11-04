@@ -18,7 +18,7 @@ const ADS_ENABLED := false
 
 const BOOTSTRAP := """
 window.tbSdk = window.tbSdk || {
-  ready: false, env: 'none', muted: false,
+  ready: false, env: 'none', muted: false, locale: '',
   init: function () {
     try {
       if (!window.CrazyGames || !window.CrazyGames.SDK) { this.env = 'missing'; return; }
@@ -27,6 +27,7 @@ window.tbSdk = window.tbSdk || {
         self.env = sdk.environment;
         self.ready = sdk.environment !== 'disabled';
         try { self.muted = !!(sdk.game.settings && sdk.game.settings.muteAudio); } catch (e) {}
+        try { self.locale = String((sdk.user.systemInfo && sdk.user.systemInfo.locale) || ''); } catch (e) {}
       }).catch(function () { self.env = 'disabled'; });
     } catch (e) { this.env = 'disabled'; }
   },
@@ -61,6 +62,8 @@ window.tbSdk.init();
 """
 
 var environment := "none"
+## Idioma que informa el SDK (p. ej. "es-ES"); "" sin SDK.
+var locale := ""
 var checked := false
 var _ready_sdk := false
 var _ad_busy := false
@@ -84,6 +87,7 @@ func _ready() -> void:
 		if environment in ["crazygames", "local", "disabled", "missing"]:
 			break
 	_ready_sdk = bool(_bridge.ready)
+	locale = str(_bridge.locale) if _ready_sdk else ""
 	if _ready_sdk and bool(_bridge.muted):
 		Audio.set_muted(true)
 	_mark_checked()
@@ -114,6 +118,11 @@ func data_set(key: String, value: String) -> void:
 func data_remove(key: String) -> void:
 	if _ready_sdk:
 		_bridge.dataRemove(key)
+
+
+## Código de idioma del jugador según CrazyGames ("es", "en"...), o "" si no se sabe.
+func system_language() -> String:
+	return locale.get_slice("-", 0).to_lower()
 
 
 func is_active() -> bool:

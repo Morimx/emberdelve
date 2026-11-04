@@ -51,7 +51,7 @@ func show_for(target: Control, text: String, layer: Control) -> void:
 		var b := Button.new()
 		b.text = entry[0]
 		b.focus_mode = Control.FOCUS_NONE  # el foco de teclado sigue en las cartas
-		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_font_size_override("font_size", 14)
 		b.pressed.connect(func() -> void: dismissed.emit(entry[1]))
 		buttons.add_child(b)
 	_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE

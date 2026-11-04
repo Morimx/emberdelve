@@ -8,11 +8,13 @@ const SUPPORTED: PackedStringArray = ["en", "es"]
 static var _registered := false
 
 
-## Aplica el idioma pedido; si no es válido, elige según el sistema.
-static func apply(language: String) -> void:
+## Aplica el idioma pedido; si no es válido, usa el que informa la plataforma (SDK)
+## y, si tampoco, el del sistema. Todo lo que no sea español cae en inglés.
+static func apply(language: String, platform_language := "") -> void:
 	_register()
 	if not language in SUPPORTED:
-		language = "es" if OS.get_locale_language() == "es" else "en"
+		var system := platform_language if platform_language != "" else OS.get_locale_language()
+		language = "es" if system == "es" else "en"
 	TranslationServer.set_locale(language)
 
 
