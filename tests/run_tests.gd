@@ -44,6 +44,7 @@ const TESTS: PackedStringArray = [
 	"test_class_gear_and_charms",
 	"test_meta_v6_moves_party_gear_to_heroes",
 	"test_run_item_boosts_only_its_hero",
+	"test_tips_roundtrip",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -488,6 +489,19 @@ func test_spanish_covers_every_text() -> bool:
 		printerr("    marcadores distintos: ", bad_format)
 	_check(missing.is_empty(), "todos los textos visibles tienen traducción al español")
 	_check(bad_format.is_empty(), "las traducciones conservan los marcadores %d/%s/%%")
+	return true
+
+
+func test_tips_roundtrip() -> bool:
+	var meta := MetaState.new()
+	_check(meta.should_tip("doors"), "partida nueva: muestra consejos")
+	meta.mark_tip("doors")
+	var loaded := MetaState.from_dict(meta.to_dict())
+	_check(not loaded.should_tip("doors") and loaded.should_tip("combat"), "consejos vistos se guardan")
+	loaded.tips_off = true
+	_check(not MetaState.from_dict(loaded.to_dict()).should_tip("combat"), "saltar consejos se guarda")
+	_check(not MetaState.from_dict({"version": 6, "runs": 3}).should_tip("doors"), "guardado viejo con partidas: sin tutorial")
+	_check(MetaState.from_dict({"version": 6, "runs": 0}).should_tip("doors"), "guardado viejo sin partidas: con tutorial")
 	return true
 
 

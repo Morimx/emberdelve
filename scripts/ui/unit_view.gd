@@ -8,6 +8,7 @@ const SIZE_BOSS := 136.0
 
 var unit: Unit
 var _base_x := 0.0
+var _idle: Tween
 
 @onready var _name: Label = %Name
 @onready var _body: Control = %Body
@@ -41,6 +42,27 @@ func set_hp(hp: int) -> void:
 	var alive := hp > 0
 	_sprite.modulate.a = 1.0 if alive else 0.25
 	_sprite.rotation = 0.0 if alive else (PI / 2.0 if not unit.is_enemy else -PI / 2.0)
+	if alive and _idle == null:
+		_breathe()
+	elif not alive:
+		_stop_idle()
+
+
+## Respiración en reposo: sube y baja un poco, desfasada entre personajes.
+func _breathe() -> void:
+	var lift := 5.0 if unit.max_hp > 300 and unit.is_enemy else 3.0
+	var period := randf_range(0.7, 0.9)
+	_idle = create_tween().set_loops()
+	_idle.tween_interval(randf() * 0.4)
+	_idle.tween_property(_sprite, "position:y", -lift, period).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_idle.tween_property(_sprite, "position:y", 0.0, period).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _stop_idle() -> void:
+	if _idle:
+		_idle.kill()
+		_idle = null
+	_sprite.position.y = 0.0
 
 
 ## Punto de origen para los números flotantes, en coordenadas globales.
@@ -69,6 +91,7 @@ func healed() -> void:
 
 
 func die() -> void:
+	_stop_idle()
 	var tw := create_tween().set_parallel()
 	tw.tween_property(_sprite, "modulate:a", 0.25, 0.35)
 	tw.tween_property(_sprite, "rotation", PI / 2.0 if not unit.is_enemy else -PI / 2.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)

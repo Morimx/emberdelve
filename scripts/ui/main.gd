@@ -72,6 +72,7 @@ var _speed_button: Button
 var _backdrop: DungeonBackdrop
 ## Puntajes sobre la escena: la tabla al terminar una expedición o el récord en el campamento.
 var _score_panel: Control
+var _tip: CoachTip
 var _lanes: HBoxContainer
 var _enemy_row: HBoxContainer
 var _party_row: HBoxContainer
@@ -96,6 +97,12 @@ func _ready() -> void:
 	Locale.apply(meta.language)
 	_update_hud()
 	var resumed := RunStore.load_run(meta)
+	if resumed == null and meta.runs == 0 and meta.should_tip("start"):
+		# Primera vez: directo a la primera mazmorra, sin pasar por el campamento.
+		meta.mark_tip("start")
+		_rewarded_offered = true  # sin anuncio antes de la primera partida
+		_start_expedition(&"catacombs", tr("Welcome, delver! Lead your party through the catacombs and bring back their treasure."))
+		return
 	if resumed == null:
 		_show_camp(tr("This save comes from a newer version of the game and won't be modified.") if meta.newer_save else "")
 		return
@@ -181,7 +188,7 @@ func _show_camp(message: String) -> void:
 	for t in catalog:
 		if meta.can_buy(t):
 			affordable += 1
-	_add_card(SpriteBank.icon(&"gem"), tr("Constellation"), tr("Spend gold and shards on permanent talents."), tr("%d available") % affordable if affordable > 0 else tr("Save up"), UiSkin.GOLD, _open_talents)
+	var talents_card := _add_card(SpriteBank.icon(&"gem"), tr("Constellation"), tr("Spend gold and shards on permanent talents."), tr("%d available") % affordable if affordable > 0 else tr("Save up"), UiSkin.GOLD, _open_talents)
 	_add_card(SpriteBank.icon(&"armor"), tr("Armory"), tr("Equip, compare and salvage the loot you brought back."), tr("%d in stash") % meta.stash.size(), Loot.RARITY_COLORS[2], _open_armory)
 	var upgradable := 0
 	for h: HeroData in GameData.HEROES:
@@ -189,6 +196,8 @@ func _show_camp(message: String) -> void:
 			upgradable += 1
 	_add_card(SpriteBank.icon(&"cross"), tr("Skills"), tr("Train each hero's skill with shards."), tr("%d ready") % upgradable if upgradable > 0 else tr("Needs shards"), BOON_COLOR, _show_skills)
 	_focus_first_card()
+	if meta.runs > 0:
+		_coach("camp", talents_card, tr("Spend what you brought back on permanent talents, then delve again."))
 
 
 func _show_dungeon_select() -> void:
@@ -224,13 +233,13 @@ func _on_upgrade_skill(hero_id: StringName) -> void:
 		_show_skills()
 
 
-func _start_expedition(dungeon_id: StringName = &"catacombs") -> void:
+func _start_expedition(dungeon_id: StringName = &"catacombs", intro := "") -> void:
 	if not _rewarded_offered:
 		Platform.request_ad("midgame")
 	_rewarded_offered = false
 	_attach(GameData.new_expedition(meta, randi(), dungeon_id))
 	_save_run()
-	_show_doors(tr("You enter the %s. Every room burns light: get out before it goes dark.") % tr(GameData.dungeon(dungeon_id).display_name))
+	_show_doors(intro if intro != "" else tr("You enter the %s. Every room burns light: get out before it goes dark.") % tr(GameData.dungeon(dungeon_id).display_name))
 
 
 ## Muestra la elección pendiente que corresponda: nivel, recompensa o puertas.
@@ -249,6 +258,7 @@ func _show_doors(message: String) -> void:
 	_show_party_only()
 	_set_text(tr(expedition.floor_label()), message if message != "" else tr("Choose the next door, or retreat with all your loot."))
 	_clear_cards()
+	var boss_card: ChoiceCard
 	for kind: StringName in expedition.current_doors():
 		var door: Dictionary = DOORS[kind]
 		var cost: int = Expedition.TORCH_COST[kind]
@@ -263,8 +273,16 @@ func _show_doors(message: String) -> void:
 			icon = SpriteBank.icon(boss.id, 2)
 		var card := _add_card(icon, door_name, tr(door.desc), footer, door.color, _on_door.bind(kind))
 		card.disabled = not expedition.can_enter(kind)
-	_add_card(SpriteBank.icon(&"torch"), tr("Retreat"), tr("Leave now and keep everything: %d gold, %d items.") % [expedition.gold, expedition.items.size()], tr("Keep 100%"), UiSkin.TORCH, _on_retreat)
+		if kind == &"boss":
+			boss_card = card
+	var retreat := _add_card(SpriteBank.icon(&"torch"), tr("Retreat"), tr("Leave now and keep everything: %d gold, %d items.") % [expedition.gold, expedition.items.size()], tr("Keep 100%"), UiSkin.TORCH, _on_retreat)
 	_focus_first_card()
+	if expedition.torch <= 2 and meta.should_tip("retreat"):
+		_coach("retreat", retreat, tr("Your light is low! Retreat now to keep 100% of your loot."))
+	elif boss_card != null and meta.should_tip("boss"):
+		_coach("boss", boss_card, tr("The boss waits behind this door. Beat it to open the next dungeon."))
+	else:
+		_coach("doors", _torch, tr("Every door burns light. If your torch goes out, you keep only half your loot."))
 
 
 func _show_levelup() -> void:
@@ -278,6 +296,7 @@ func _show_levelup() -> void:
 		var boon: BoonData = expedition.levelup_options[i]
 		_add_card(SpriteBank.icon(BOON_ICONS.get(boon.stat, &"fire")), tr(boon.display_name), tr(boon.description), tr("Blessing"), BOON_COLOR, _on_levelup.bind(i))
 	_focus_first_card()
+	_coach("levelup", _cards, tr("Blessings power up the whole party until this expedition ends."))
 
 
 func _show_rewards() -> void:
@@ -302,6 +321,7 @@ func _show_rewards() -> void:
 			&"boon":  # autoguardados de versiones anteriores
 				_add_card(SpriteBank.icon(&"fire"), tr(r.boon.display_name), tr(r.boon.description), tr("Blessing"), BOON_COLOR, _on_reward.bind(i))
 	_focus_first_card()
+	_coach("reward", _cards, tr("Pick one reward. Items you carry out become permanent gear."))
 
 
 func _show_result() -> void:
@@ -473,7 +493,7 @@ func _save_run() -> void:
 func _on_door(kind: StringName) -> void:
 	_clear_cards()
 	Audio.play(&"door")
-	_backdrop.set_scene(ROOM_SCENES.get(kind, &"corridor"))
+	await _fade_stage(_backdrop.set_scene.bind(ROOM_SCENES.get(kind, &"corridor")))
 	var result := expedition.enter(kind)
 	if result.has("error"):
 		_show_doors(result.error)
@@ -535,6 +555,7 @@ func _play_combat(result: Dictionary) -> void:
 	skip.pressed.connect(func() -> void: skipping = true)
 	_cards.add_child(skip)
 	skip.grab_focus.call_deferred()
+	_coach("combat", _speed_button, tr("Your heroes fight on their own. Press S to speed up, or skip the fight."))
 	await get_tree().process_frame  # que el layout ubique las vistas antes del primer número
 
 	var boss_fight: bool = result.kind == &"boss"
@@ -612,6 +633,24 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 					_add_trauma(0.5 if e.dst.max_hp > 300 else 0.3)
 					return 0.12
 	return 0.0
+
+
+## Oscurece la escena, aplica el cambio de sala y vuelve a aclarar (sin esperar el final).
+func _fade_stage(change: Callable) -> void:
+	var stage := _backdrop.get_parent() as Control
+	var veil := ColorRect.new()
+	veil.color = Color(UiSkin.INK, 0.0)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	veil.z_index = 5
+	stage.add_child(veil)
+	var tw := create_tween()
+	tw.tween_property(veil, "color:a", 1.0, 0.15)
+	await tw.finished
+	change.call()
+	var out := create_tween()
+	out.tween_property(veil, "color:a", 0.0, 0.3).set_delay(0.05)
+	out.tween_callback(veil.queue_free)
 
 
 func _float_at(global_point: Vector2, text: String, color: Color, big := false) -> void:
@@ -759,6 +798,34 @@ func _show_event_result(result: Dictionary) -> void:
 			_set_text(tr("A quiet shrine"), tr("A blue flame rekindles your torch: +%d light.") % result.light, Color("5fd6e8"))
 			_add_card(SpriteBank.icon(&"torch"), tr("Rekindled"), tr("The spirit of the shrine lends you its flame."), tr("+%d LIGHT") % result.light, UiSkin.TORCH, _show_next.bind(""))
 	_focus_first_card()
+
+
+# --- tutorial -----------------------------------------------------------------
+
+## Consejo del tutorial señalando target, solo la primera vez y si no se saltearon.
+func _coach(id: String, target: Control, text: String) -> void:
+	if meta == null or not meta.should_tip(id) or not is_instance_valid(target):
+		return
+	_dismiss_tip()
+	meta.mark_tip(id)
+	_save_meta()
+	_tip = CoachTip.new()
+	_tip.dismissed.connect(_on_tip_dismissed)
+	_tip.show_for(target, text, _fx)
+
+
+func _on_tip_dismissed(skip_all: bool) -> void:
+	if skip_all:
+		meta.tips_off = true
+		_save_meta()
+	_dismiss_tip()
+	_focus_first_card()
+
+
+func _dismiss_tip() -> void:
+	if is_instance_valid(_tip):
+		_tip.queue_free()
+	_tip = null
 
 
 # --- diálogos ----------------------------------------------------------------
@@ -1078,6 +1145,7 @@ func _clear_arena() -> void:
 
 
 func _clear_cards() -> void:
+	_dismiss_tip()
 	for child in _cards.get_children():
 		_cards.remove_child(child)
 		child.queue_free()
