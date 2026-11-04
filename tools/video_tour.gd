@@ -15,6 +15,8 @@ var _elapsed := 0.0
 func _ready() -> void:
 	seed(20261102)
 	_backup()
+	# Guardado de demo ya escrito: así el juego no abre la sala de entrenamiento.
+	_demo_meta().save()
 	main = load("res://scenes/main.tscn").instantiate()
 	add_child(main)
 	_add_cover()
@@ -46,10 +48,21 @@ func _run() -> void:
 	for room in 3:
 		await _wait(0.9)
 		var doors: Array = main.expedition.current_doors()
-		var pick: StringName = &"combat" if &"combat" in doors else (&"elite" if &"elite" in doors else doors[0])
+		# Élites primero: muestran los golpes cargados.
+		var pick: StringName = &"elite" if &"elite" in doors and main.expedition.can_enter(&"elite") else (&"combat" if &"combat" in doors else doors[0])
 		main._on_door(pick)
 		await _wait(0.4)  # el fundido de la puerta va antes de que empiece la sala
+		var focused := false
 		while main._cards.has_meta("busy"):
+			var fight: Combat = main.expedition.fight
+			if fight != null and not focused and not fight.enemies.is_empty():
+				# Marca al enemigo más fuerte, como haría un jugador.
+				var target: Unit = fight.enemies[0]
+				for e in fight.enemies:
+					if e.max_hp > target.max_hp:
+						target = e
+				main._on_focus_enemy(target, fight)
+				focused = true
 			_cast_ready_skills()
 			await get_tree().process_frame
 		if main.expedition.finished:
@@ -62,13 +75,19 @@ func _run() -> void:
 			main._on_reward(0)
 
 
-## Lanza las habilidades apenas están listas, como lo haría un jugador atento.
+## Juega como un jugador atento: escudo y puñalada contra los golpes cargados, la cura
+## cuando hace falta.
 func _cast_ready_skills() -> void:
 	var fight: Combat = main.expedition.fight if main.expedition else null
 	if fight == null:
 		return
+	var charging := fight.enemies.any(func(e: Unit) -> bool: return fight.windup_left(e) > 0.0)
+	var hurt := fight.party.any(func(h: Unit) -> bool: return h.is_alive() and h.hp < h.max_hp * 0.7)
 	for u: Unit in fight.party:
-		if fight.skill_ready(u):
+		if not fight.skill_ready(u):
+			continue
+		var use: bool = hurt if u.skill == &"heal" else (charging or u.skill == &"backstab")
+		if use:
 			fight.request_skill(u)
 
 
@@ -97,10 +116,11 @@ func _demo_meta() -> MetaState:
 	var m := MetaState.new()
 	m.gold = 340
 	m.shards = 6
-	m.talents = {"ember": 1, "might": 2, "vitality": 2, "keen_edge": 1}
-	m.skill_levels = {"warrior": 2, "cleric": 2, "assassin": 2}
+	m.talents = {"ember": 1, "might": 3, "vitality": 3, "bulwark": 2, "keen_edge": 1}
+	m.skill_levels = {"warrior": 3, "cleric": 3, "assassin": 3}
 	m.runs = 3
 	m.tips_off = true  # sin consejos del tutorial en el video
+	m.tutorial_done = true
 	return m
 
 
