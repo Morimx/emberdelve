@@ -46,6 +46,12 @@ var outcome: StringName = &""
 var kept := {}
 ## Segundos reales jugados en esta expedición (los suma la UI); define el bonus de rapidez.
 var elapsed := 0.0
+## Combate a mano: enter() deja la pelea en `fight` para que la UI la avance con step()
+## y el jugador lance las habilidades; después la UI llama a finish_combat().
+## Sin él (pruebas y balance), enter() resuelve el combate entero con lanzamiento automático.
+var manual_combat := false
+var fight: Combat
+var _fight_result := {}
 
 var _enemy_pool: Array[EnemyData]
 var _boss: EnemyData
@@ -87,7 +93,7 @@ func current_doors() -> Array:
 
 
 func has_pending_choice() -> bool:
-	return not pending_rewards.is_empty() or pending_levelups > 0
+	return not pending_rewards.is_empty() or pending_levelups > 0 or fight != null
 
 
 func can_enter(kind: StringName) -> bool:
@@ -130,6 +136,8 @@ func enter(kind: StringName) -> Dictionary:
 	match kind:
 		&"combat", &"elite", &"boss":
 			_resolve_combat(kind, result)
+			if fight != null:
+				return result  # el checkpoint llega con finish_combat()
 		&"event":
 			_resolve_event(result)
 			_check_darkness()
@@ -237,13 +245,39 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 	var start_hp := {}
 	for u in fighters + enemies:
 		start_hp[u] = u.hp
-	var combat := Combat.run(fighters, enemies, rng, mods)
 	result["party"] = party
 	result["enemies"] = enemies
 	result["start_hp"] = start_hp
-	result["combat"] = combat
+	if manual_combat:
+		fight = Combat.new(fighters, enemies, rng, mods, Combat.AUTO_CAST_DELAY)
+		result["fight"] = fight
+		_fight_result = result
+		return
+	result["combat"] = Combat.run(fighters, enemies, rng, mods)
+	_after_combat(result)
 
-	if not combat.won:
+
+## Cierra la pelea a mano cuando terminó: recompensas, experiencia o derrota.
+func finish_combat() -> Dictionary:
+	if fight == null or not fight.finished:
+		push_error("No hay un combate terminado para cerrar.")
+		return {}
+	var result := _fight_result
+	result["combat"] = {"won": fight.won, "duration": fight.t}
+	fight = null
+	_fight_result = {}
+	_after_combat(result)
+	if not finished:
+		checkpoint.emit()
+	return result
+
+
+func _after_combat(result: Dictionary) -> void:
+	var kind: StringName = result.kind
+	var depth: int = result.step
+	var enemies: Array[Unit] = result.enemies
+	var scale := (1.0 + DEPTH_SCALING * depth) * difficulty
+	if not result.combat.won:
 		_finish(&"defeat")
 		return
 	var gained_xp := 0

@@ -1,100 +1,177 @@
 class_name Combat
 extends RefCounted
-## Simulación de combate automático por ticks. Es pura: recibe unidades y un RNG,
-## las modifica y devuelve la lista de eventos para que la UI los reproduzca.
+## Simulación de combate por ticks. Es pura: recibe unidades y un RNG, las modifica y
+## devuelve eventos para que la UI los reproduzca. La UI la avanza con step() y deja que
+## el jugador lance las habilidades de los héroes; run() la resuelve entera con
+## lanzamiento automático (pruebas y simulación de balance).
 
 const TICK := 0.1
 const MAX_TIME := 90.0
 const SHIELD_DURATION := 3.0
+## Segundos que una habilidad lista espera al jugador antes de lanzarse sola.
+const AUTO_CAST_DELAY := 3.0
+## Curación automática: solo si alguien bajó de esta fracción de vida.
+const AUTO_HEAL_BELOW := 0.75
+
+var party: Array[Unit]
+var enemies: Array[Unit]
+var t := 0.0
+var finished := false
+var won := false
+## Espera antes del lanzamiento automático (0 = apenas está lista).
+var auto_delay := 0.0
+
+var _rng: RandomNumberGenerator
+var _all: Array[Unit] = []
+var _attack_timers := {}
+var _skill_timers := {}
+var _waiting := {}
+var _requested := {}
+var _backstab := {}
+var _speeds := {}
+var _shield_until := -1.0
+var _shield_power := 0.0
+var _atk_pct := 0.0
+var _def_bonus := 0
+var _lifesteal := 0.0
+var _extra_crit := 0.0
+var _skill_mult := 1.0
 
 
-static func run(party: Array[Unit], enemies: Array[Unit], rng: RandomNumberGenerator, mods: Dictionary = {}) -> Dictionary:
-	var events: Array[Dictionary] = []
-	var all: Array[Unit] = []
-	all.append_array(party)
-	all.append_array(enemies)
-
-	var attack_timers := {}
-	var skill_timers := {}
-	var backstab := {}
-	var atk_pct: float = mods.get("attack_pct", 0.0)
-	var def_bonus: int = int(mods.get("defense", 0))
-	var lifesteal: float = mods.get("lifesteal", 0.0)
-	var extra_crit: float = mods.get("crit_chance", 0.0)
+func _init(p_party: Array[Unit], p_enemies: Array[Unit], rng: RandomNumberGenerator, mods: Dictionary = {}, p_auto_delay := 0.0) -> void:
+	party = p_party
+	enemies = p_enemies
+	_rng = rng
+	auto_delay = p_auto_delay
+	_all.append_array(party)
+	_all.append_array(enemies)
+	_atk_pct = mods.get("attack_pct", 0.0)
+	_def_bonus = int(mods.get("defense", 0))
+	_lifesteal = mods.get("lifesteal", 0.0)
+	_extra_crit = mods.get("crit_chance", 0.0)
+	_skill_mult = 1.0 + mods.get("skill_power_pct", 0.0)
 	var speed_mult: float = 1.0 + mods.get("speed_pct", 0.0)
-	var skill_mult: float = 1.0 + mods.get("skill_power_pct", 0.0)
+	for u in _all:
+		_speeds[u] = u.speed * (speed_mult if not u.is_enemy else 1.0)
+		_attack_timers[u] = rng.randf_range(0.3, 1.0) / _speeds[u]
+		_skill_timers[u] = u.skill_cooldown
+		_waiting[u] = 0.0
+	_check_end()
 
-	var speeds := {}
-	for u in all:
-		speeds[u] = u.speed * (speed_mult if not u.is_enemy else 1.0)
-		attack_timers[u] = rng.randf_range(0.3, 1.0) / speeds[u]
-		skill_timers[u] = u.skill_cooldown
-	var shield_until := -1.0
-	var shield_power := 0.0
 
-	var t := 0.0
-	while t < MAX_TIME and _any_alive(party) and _any_alive(enemies):
-		t += TICK
-		for u in all:
-			if not u.is_alive() or not _any_alive(party) or not _any_alive(enemies):
-				continue
+## Resuelve el combate completo lanzando cada habilidad apenas está lista.
+static func run(p_party: Array[Unit], p_enemies: Array[Unit], rng: RandomNumberGenerator, mods: Dictionary = {}) -> Dictionary:
+	var combat := Combat.new(p_party, p_enemies, rng, mods)
+	var events: Array[Dictionary] = []
+	while not combat.finished:
+		events.append_array(combat.step())
+	return {"won": combat.won, "events": events, "duration": combat.t}
 
-			if u.skill != &"":
-				skill_timers[u] -= TICK
-				if skill_timers[u] <= 0.0:
-					match u.skill:
-						&"shield_wall":
-							shield_until = t + SHIELD_DURATION
-							shield_power = minf(0.8, u.skill_power * skill_mult)
-							events.append({"t": t, "type": "skill", "src": u, "label": "Shield Wall"})
-							skill_timers[u] = u.skill_cooldown
-						&"heal":
-							var target := _most_wounded(party)
-							if target == null:
-								skill_timers[u] = 0.5
-							else:
-								var amount := int(round(target.max_hp * u.skill_power * skill_mult))
-								target.hp = mini(target.max_hp, target.hp + amount)
-								events.append({"t": t, "type": "heal", "src": u, "dst": target, "amount": amount, "hp": target.hp})
-								skill_timers[u] = u.skill_cooldown
-						&"backstab":
-							backstab[u] = true
-							events.append({"t": t, "type": "skill", "src": u, "label": "Backstab"})
-							skill_timers[u] = u.skill_cooldown
 
-			attack_timers[u] -= TICK
-			if attack_timers[u] > 0.0:
-				continue
-			attack_timers[u] += 1.0 / speeds[u]
+func skill_ready(u: Unit) -> bool:
+	return u.skill != &"" and u.is_alive() and not finished and _skill_timers.get(u, 1.0) <= 0.0
 
-			var foe := _pick_target(u, enemies if not u.is_enemy else party)
-			if foe == null:
-				continue
-			var atk := float(u.attack) * (1.0 + (atk_pct if not u.is_enemy else 0.0))
-			var def := float(foe.defense + (def_bonus if not foe.is_enemy else 0))
-			var dmg := atk * rng.randf_range(0.9, 1.1) - def * 0.5
-			var crit := rng.randf() < u.crit_chance + (extra_crit if not u.is_enemy else 0.0)
-			if crit:
-				dmg *= 2.0
-			if backstab.get(u, false):
-				dmg *= 3.0 * skill_mult * u.skill_power
-				backstab[u] = false
-			if not foe.is_enemy and t < shield_until:
-				dmg *= 1.0 - shield_power
-			var amount := maxi(1, int(round(dmg)))
-			foe.hp = maxi(0, foe.hp - amount)
-			events.append({"t": t, "type": "hit", "src": u, "dst": foe, "amount": amount, "crit": crit, "hp": foe.hp})
 
-			if not u.is_enemy and lifesteal > 0.0 and u.hp < u.max_hp:
-				var heal := int(round(amount * lifesteal))
-				if heal > 0:
-					u.hp = mini(u.max_hp, u.hp + heal)
-					events.append({"t": t, "type": "heal", "src": u, "dst": u, "amount": heal, "hp": u.hp})
-			if not foe.is_alive():
-				events.append({"t": t, "type": "death", "dst": foe})
+## Carga de la habilidad entre 0 y 1 (1 = lista).
+func skill_charge(u: Unit) -> float:
+	if u.skill == &"" or u.skill_cooldown <= 0.0:
+		return 0.0
+	return clampf(1.0 - _skill_timers.get(u, 0.0) / u.skill_cooldown, 0.0, 1.0)
 
-	var won := not _any_alive(enemies) and _any_alive(party)
-	return {"won": won, "events": events, "duration": t}
+
+## El jugador pide lanzar la habilidad; se aplica en el próximo tick. false si no está lista.
+func request_skill(u: Unit) -> bool:
+	if not skill_ready(u) or u.is_enemy:
+		return false
+	_requested[u] = true
+	return true
+
+
+## Avanza un tick y devuelve los eventos que ocurrieron en él.
+func step() -> Array[Dictionary]:
+	var events: Array[Dictionary] = []
+	if finished:
+		return events
+	t += TICK
+	for u in _all:
+		if not u.is_alive() or not _any_alive(party) or not _any_alive(enemies):
+			continue
+		if u.skill != &"":
+			_tick_skill(u, events)
+		_attack_timers[u] -= TICK
+		if _attack_timers[u] > 0.0:
+			continue
+		_attack_timers[u] += 1.0 / _speeds[u]
+		_attack(u, events)
+	_check_end()
+	return events
+
+
+func _tick_skill(u: Unit, events: Array[Dictionary]) -> void:
+	_skill_timers[u] -= TICK
+	if _skill_timers[u] > 0.0:
+		return
+	var manual: bool = _requested.get(u, false)
+	_requested.erase(u)
+	if not manual:
+		# Los enemigos no esperan; los héroes esperan al jugador un rato.
+		_waiting[u] += TICK
+		if not u.is_enemy and _waiting[u] < auto_delay - 0.001:
+			return
+	match u.skill:
+		&"shield_wall":
+			_shield_until = t + SHIELD_DURATION
+			_shield_power = minf(0.8, u.skill_power * _skill_mult)
+			events.append({"t": t, "type": "skill", "src": u, "label": "Shield Wall"})
+		&"heal":
+			# A mano cura a cualquiera herido; sola espera a que alguien esté bastante herido.
+			var target := _most_wounded(party, 1.0 if manual else AUTO_HEAL_BELOW)
+			if target == null:
+				if not manual:
+					_skill_timers[u] = 0.5
+					_waiting[u] = 0.0
+				return
+			var amount := int(round(target.max_hp * u.skill_power * _skill_mult))
+			target.hp = mini(target.max_hp, target.hp + amount)
+			events.append({"t": t, "type": "heal", "src": u, "dst": target, "amount": amount, "hp": target.hp})
+		&"backstab":
+			_backstab[u] = true
+			events.append({"t": t, "type": "skill", "src": u, "label": "Backstab"})
+	_skill_timers[u] = u.skill_cooldown
+	_waiting[u] = 0.0
+
+
+func _attack(u: Unit, events: Array[Dictionary]) -> void:
+	var foe := _pick_target(u, enemies if not u.is_enemy else party)
+	if foe == null:
+		return
+	var atk := float(u.attack) * (1.0 + (_atk_pct if not u.is_enemy else 0.0))
+	var def := float(foe.defense + (_def_bonus if not foe.is_enemy else 0))
+	var dmg := atk * _rng.randf_range(0.9, 1.1) - def * 0.5
+	var crit := _rng.randf() < u.crit_chance + (_extra_crit if not u.is_enemy else 0.0)
+	if crit:
+		dmg *= 2.0
+	if _backstab.get(u, false):
+		dmg *= 3.0 * _skill_mult * u.skill_power
+		_backstab[u] = false
+	if not foe.is_enemy and t < _shield_until:
+		dmg *= 1.0 - _shield_power
+	var amount := maxi(1, int(round(dmg)))
+	foe.hp = maxi(0, foe.hp - amount)
+	events.append({"t": t, "type": "hit", "src": u, "dst": foe, "amount": amount, "crit": crit, "hp": foe.hp})
+	if not u.is_enemy and _lifesteal > 0.0 and u.hp < u.max_hp:
+		var heal := int(round(amount * _lifesteal))
+		if heal > 0:
+			u.hp = mini(u.max_hp, u.hp + heal)
+			events.append({"t": t, "type": "heal", "src": u, "dst": u, "amount": heal, "hp": u.hp})
+	if not foe.is_alive():
+		events.append({"t": t, "type": "death", "dst": foe})
+
+
+func _check_end() -> void:
+	if t >= MAX_TIME - 0.0001 or not _any_alive(party) or not _any_alive(enemies):
+		finished = true
+		won = not _any_alive(enemies) and _any_alive(party)
 
 
 static func _any_alive(units: Array[Unit]) -> bool:
@@ -118,9 +195,9 @@ static func _pick_target(attacker: Unit, foes: Array[Unit]) -> Unit:
 	return best
 
 
-static func _most_wounded(units: Array[Unit]) -> Unit:
+static func _most_wounded(units: Array[Unit], below: float) -> Unit:
 	var best: Unit = null
-	var best_ratio := 0.75
+	var best_ratio := below
 	for u in units:
 		if not u.is_alive():
 			continue

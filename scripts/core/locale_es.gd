@@ -16,7 +16,7 @@ const TEXT := {
 	# --- tutorial ---
 	"Welcome, delver! Lead your party through the catacombs and bring back their treasure.": "¡Bienvenido, explorador! Guía a tu grupo por las catacumbas y trae de vuelta su tesoro.",
 	"Every door burns light. If your torch goes out, you keep only half your loot.": "Cada puerta gasta luz. Si se apaga la antorcha, te quedas solo con la mitad del botín.",
-	"Your heroes fight on their own. Press S to speed up, or skip the fight.": "Tus héroes pelean solos. Pulsa S para acelerar o salta el combate.",
+	"Your heroes attack on their own. Click a skill (or press 1-3) when it glows. S changes the speed.": "Tus héroes atacan solos. Haz clic en una habilidad (o pulsa 1-3) cuando brille. S cambia la velocidad.",
 	"Pick one reward. Items you carry out become permanent gear.": "Elige una recompensa. Los objetos que saques se vuelven equipo permanente.",
 	"Blessings power up the whole party until this expedition ends.": "Las bendiciones potencian a todo el grupo hasta que termine la expedición.",
 	"Your light is low! Retreat now to keep 100% of your loot.": "¡Queda poca luz! Retírate ahora para quedarte con el 100% del botín.",
@@ -33,7 +33,8 @@ const TEXT := {
 	"+%d light and %d gold.": "+%d luz y %d de oro.",
 	"-%d light": "-%d luz",
 	"-%d light, then +%d": "-%d luz, luego +%d",
-	"1  Skip fight": "1  Saltar combate",
+	"%d  Skip fight": "%d  Saltar combate",
+	"Use each hero's skill when it lights up. Unused skills fire on their own.": "Usa la habilidad de cada héroe cuando se ilumine. Si no la usas, se lanza sola.",
 	"A blue flame rekindles your torch: +%d light.": "Una llama azul reaviva tu antorcha: +%d luz.",
 	"A pack of monsters.": "Una manada de monstruos.",
 	"A quiet shrine": "Un santuario silencioso",

@@ -472,6 +472,7 @@ func _close_armory(armory: ArmoryScreen) -> void:
 
 func _attach(ex: Expedition) -> void:
 	expedition = ex
+	expedition.manual_combat = true
 	expedition.torch_changed.connect(_on_torch_changed)
 	expedition.checkpoint.connect(_save_run)
 	expedition.ended.connect(_on_expedition_ended)
@@ -498,7 +499,7 @@ func _on_door(kind: StringName) -> void:
 	if result.has("error"):
 		_show_doors(result.error)
 		return
-	if result.has("combat"):
+	if result.has("fight"):
 		await _play_combat(result)
 	if expedition.finished:
 		return
@@ -539,6 +540,8 @@ func _on_expedition_ended(_outcome: StringName, _kept: Dictionary) -> void:
 
 # --- combate -----------------------------------------------------------------
 
+## Pelea a mano: avanza la simulación tick a tick y deja lanzar las habilidades con
+## los botones (o las teclas 1-3). Al terminar, la expedición reparte las recompensas.
 func _play_combat(result: Dictionary) -> void:
 	_cards.set_meta("busy", true)
 	_clear_arena()
@@ -546,31 +549,46 @@ func _play_combat(result: Dictionary) -> void:
 		_add_unit_view(u, _enemy_row, result.start_hp[u])
 	for u: Unit in result.party:
 		_add_unit_view(u, _party_row, result.start_hp.get(u, u.hp))
-	_set_text(tr(DOORS[result.kind].name), tr("Fighting..."))
+	_set_text(tr(DOORS[result.kind].name), tr("Use each hero's skill when it lights up. Unused skills fire on their own."))
 	skipping = false
+	var fight: Combat = result.fight
+	var skill_buttons: Array[SkillButton] = []
+	for u: Unit in fight.party:
+		var hero := GameData.hero(u.id)
+		var button := SkillButton.new()
+		button.setup(skill_buttons.size() + 1, u, tr(hero.skill_name))
+		button.tooltip_text = tr(hero.skill_description)
+		button.pressed.connect(func() -> void: fight.request_skill(u))
+		_cards.add_child(button)
+		skill_buttons.append(button)
 	var skip := Button.new()
-	skip.text = tr("1  Skip fight")
-	skip.custom_minimum_size = Vector2(180, 44)
+	skip.text = tr("%d  Skip fight") % (skill_buttons.size() + 1)
+	skip.custom_minimum_size = Vector2(160, 44)
 	skip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	skip.pressed.connect(func() -> void: skipping = true)
+	skip.focus_mode = Control.FOCUS_NONE
+	skip.pressed.connect(func() -> void:
+		skipping = true
+		fight.auto_delay = 0.0)
 	_cards.add_child(skip)
-	skip.grab_focus.call_deferred()
-	_coach("combat", _speed_button, tr("Your heroes fight on their own. Press S to speed up, or skip the fight."))
+	_coach("combat", _cards, tr("Your heroes attack on their own. Click a skill (or press 1-3) when it glows. S changes the speed."))
 	await get_tree().process_frame  # que el layout ubique las vistas antes del primer número
 
 	var boss_fight: bool = result.kind == &"boss"
 	_complained.clear()
 	_combat_banter(result, boss_fight)
-	var last_t := 0.0
-	for e: Dictionary in result.combat.events:
-		if not skipping:
-			var wait: float = (e.t - last_t) / SPEEDS[speed_index]
-			if wait > 0.02:
-				await get_tree().create_timer(wait).timeout
-			last_t = e.t
-		var pause := _apply_event(e, boss_fight)
-		if pause > 0.0 and not skipping:
-			await get_tree().create_timer(pause / SPEEDS[speed_index]).timeout
+	while not fight.finished:
+		var pause := 0.0
+		for e: Dictionary in fight.step():
+			pause = maxf(pause, _apply_event(e, boss_fight))
+		if skipping:
+			continue
+		for button in skill_buttons:
+			button.refresh(fight.skill_charge(button.unit), fight.skill_ready(button.unit), button.unit.is_alive())
+		await get_tree().create_timer((Combat.TICK + pause) / SPEEDS[speed_index]).timeout
+	expedition.finish_combat()
+	for button in skill_buttons:
+		button.refresh(0.0, false, button.unit.is_alive())
+	skip.disabled = true
 	for u: Unit in result.enemies + result.party:
 		var view: UnitView = unit_views.get(u)
 		if view:

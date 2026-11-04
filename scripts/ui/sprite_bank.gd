@@ -2,6 +2,8 @@ class_name SpriteBank
 extends RefCounted
 ## Pixel art generado desde mapas de caracteres: sin archivos de imagen ni licencias de terceros.
 ## Cada carácter es un color de la paleta; "." es transparente. Las texturas se cachean.
+## Los mapas se dibujan a resolución base y se refinan al doble (Scale2x, contorno fino y
+## sombreado con luz desde arriba a la izquierda), así todo comparte la misma densidad.
 
 const PALETTE := {
 	"k": Color("12121c"), "w": Color("ecebf3"), "s": Color("aab5cc"), "S": Color("6b7792"),
@@ -12,6 +14,7 @@ const PALETTE := {
 	"Y": Color("a89c7c"), "o": Color("f08a24"),
 	"t": Color("3fa8a0"), "T": Color("1f5f63"), "a": Color("8a8f99"), "A": Color("4f5560"),
 	"l": Color("d6f0ff"),
+	"P": Color("5a2f8f"), "q": Color("c9a0ff"), "F": Color("c08560"),
 }
 
 const SPRITES := {
@@ -72,20 +75,28 @@ const SPRITES := {
 ## Icono de cada tipo de puerta en el mapa.
 const DOOR_ICONS := {&"combat": &"weapon", &"elite": &"skull", &"event": &"chest", &"camp": &"fire", &"boss": &"lich"}
 
+## Factor de refinado: cada píxel del mapa pasa a ser 2x2 en la textura.
+const DETAIL := 2
+const OUTLINE := Color("12121c")
+const HIGHLIGHT := 0.22
+const SHADE := 0.28
+
 static var _cache := {}
 
 
 static func has_sprite(id: StringName) -> bool:
-	return SPRITES.has(id)
+	return SPRITES.has(id) or SpriteHD.SPRITES.has(id)
 
 
 ## Versión ampliada sin suavizado, para iconos de botones (que no escalan su textura).
+## factor se mide sobre el mapa base: factor 2 = el doble del mapa (la textura refinada).
 static func icon(id: StringName, factor: int = 2) -> Texture2D:
 	var key := StringName("%s@%d" % [id, factor])
 	if _cache.has(key):
 		return _cache[key]
 	var image := texture(id).get_image()
-	image.resize(image.get_width() * factor, image.get_height() * factor, Image.INTERPOLATE_NEAREST)
+	var base := image.get_size() / DETAIL
+	image.resize(base.x * factor, base.y * factor, Image.INTERPOLATE_NEAREST)
 	var tex := ImageTexture.create_from_image(image)
 	_cache[key] = tex
 	return tex
@@ -94,7 +105,8 @@ static func icon(id: StringName, factor: int = 2) -> Texture2D:
 static func texture(id: StringName) -> Texture2D:
 	if _cache.has(id):
 		return _cache[id]
-	var rows: Array = SPRITES.get(id, SPRITES[&"skull"])
+	var hd: bool = SpriteHD.SPRITES.has(id)
+	var rows: Array = SpriteHD.SPRITES[id] if hd else SPRITES.get(id, SPRITES[&"skull"])
 	var width := 0
 	for row: String in rows:
 		width = maxi(width, row.length())
@@ -105,9 +117,126 @@ static func texture(id: StringName) -> Texture2D:
 			var key := row[x]
 			if PALETTE.has(key):
 				image.set_pixel(x, y, PALETTE[key])
-	var tex := ImageTexture.create_from_image(image)
+	# Los sprites HD ya están a la resolución refinada: solo se sombrean.
+	if hd:
+		_shade(image)
+	var tex := ImageTexture.create_from_image(image if hd else refine(image))
 	_cache[id] = tex
 	return tex
+
+
+## Duplica la resolución suavizando diagonales, adelgaza el contorno exterior y sombrea.
+static func refine(src: Image) -> Image:
+	var image := _scale2x(src)
+	_thin_outline(image)
+	_shade(image)
+	return image
+
+
+static func _px(img: Image, x: int, y: int) -> Color:
+	if x < 0 or y < 0 or x >= img.get_width() or y >= img.get_height():
+		return Color(0, 0, 0, 0)
+	return img.get_pixel(x, y)
+
+
+## EPX/Scale2x: cada píxel se vuelve 2x2 y toma el color de los vecinos en las diagonales.
+static func _scale2x(src: Image) -> Image:
+	var w := src.get_width()
+	var h := src.get_height()
+	var out := Image.create_empty(w * 2, h * 2, false, Image.FORMAT_RGBA8)
+	for y in h:
+		for x in w:
+			var p := _px(src, x, y)
+			var a := _px(src, x, y - 1)
+			var b := _px(src, x + 1, y)
+			var c := _px(src, x - 1, y)
+			var d := _px(src, x, y + 1)
+			var e1 := p
+			var e2 := p
+			var e3 := p
+			var e4 := p
+			if c == a and c != d and a != b:
+				e1 = a
+			if a == b and a != c and b != d:
+				e2 = b
+			if d == c and d != b and c != a:
+				e3 = c
+			if b == d and b != a and d != c:
+				e4 = d
+			out.set_pixel(x * 2, y * 2, e1)
+			out.set_pixel(x * 2 + 1, y * 2, e2)
+			out.set_pixel(x * 2, y * 2 + 1, e3)
+			out.set_pixel(x * 2 + 1, y * 2 + 1, e4)
+	return out
+
+
+static func _is_clear(img: Image, x: int, y: int) -> bool:
+	return _px(img, x, y).a < 0.5
+
+
+static func _is_outline(img: Image, x: int, y: int) -> bool:
+	return _px(img, x, y).is_equal_approx(OUTLINE)
+
+
+## El contorno exterior queda de 2 píxeles al duplicar: la capa interior toma el color
+## del relleno vecino. Las líneas internas (ojos, costuras) no tocan el borde y se conservan.
+static func _thin_outline(img: Image) -> void:
+	var w := img.get_width()
+	var h := img.get_height()
+	var changes := {}
+	for y in h:
+		for x in w:
+			if not _is_outline(img, x, y):
+				continue
+			var touches_clear := false
+			var touches_rim := false
+			var fill := Color(0, 0, 0, 0)
+			for o: Vector2i in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+				var nx := x + o.x
+				var ny := y + o.y
+				if _is_clear(img, nx, ny):
+					touches_clear = true
+				elif _is_outline(img, nx, ny):
+					if _rim(img, nx, ny):
+						touches_rim = true
+				elif fill.a == 0.0:
+					fill = _px(img, nx, ny)
+			if not touches_clear and touches_rim and fill.a > 0.0:
+				changes[Vector2i(x, y)] = fill
+	for pos: Vector2i in changes:
+		img.set_pixelv(pos, changes[pos])
+
+
+static func _rim(img: Image, x: int, y: int) -> bool:
+	return _is_clear(img, x, y - 1) or _is_clear(img, x + 1, y) or _is_clear(img, x, y + 1) or _is_clear(img, x - 1, y)
+
+
+## Luz desde arriba a la izquierda: borde superior/izquierdo más claro, inferior/derecho
+## más oscuro, y un leve oscurecido hacia los pies.
+static func _shade(img: Image) -> void:
+	var w := img.get_width()
+	var h := img.get_height()
+	var src := img.duplicate() as Image
+	for y in h:
+		for x in w:
+			var p := src.get_pixel(x, y)
+			if p.a < 0.5 or p.is_equal_approx(OUTLINE):
+				continue
+			var lit := _edge(src, x, y - 1, p) or _edge(src, x - 1, y, p)
+			var dark := _edge(src, x, y + 1, p) or _edge(src, x + 1, y, p)
+			var c := p
+			if lit and not dark:
+				c = p.lightened(HIGHLIGHT)
+			elif dark and not lit:
+				c = p.darkened(SHADE)
+			c = c.darkened(0.12 * float(y) / h)
+			img.set_pixel(x, y, c)
+
+
+## El vecino es borde de la forma o de otra región de color (no la misma superficie).
+static func _edge(img: Image, x: int, y: int, _base: Color) -> bool:
+	var n := _px(img, x, y)
+	return n.a < 0.5 or n.is_equal_approx(OUTLINE)
 
 
 ## Ladrillo de mazmorra para el fondo de la arena (se repite como mosaico).

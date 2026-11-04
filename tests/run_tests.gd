@@ -45,6 +45,9 @@ const TESTS: PackedStringArray = [
 	"test_meta_v6_moves_party_gear_to_heroes",
 	"test_run_item_boosts_only_its_hero",
 	"test_tips_roundtrip",
+	"test_stepped_combat_matches_run",
+	"test_manual_skill_waits_for_player",
+	"test_manual_expedition_combat",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -105,6 +108,60 @@ func test_combat_is_deterministic() -> bool:
 	var r1 := Combat.run(_party(), _enemies(), a)
 	var r2 := Combat.run(_party(), _enemies(), b)
 	_check(r1.won == r2.won and r1.events.size() == r2.events.size(), "combate determinista con la misma semilla")
+	return true
+
+
+func test_stepped_combat_matches_run() -> bool:
+	var a := RandomNumberGenerator.new()
+	a.seed = 42
+	var b := RandomNumberGenerator.new()
+	b.seed = 42
+	var r := Combat.run(_party(), _enemies(), a)
+	var stepped := Combat.new(_party(), _enemies(), b)
+	var count := 0
+	while not stepped.finished:
+		count += stepped.step().size()
+	_check(stepped.won == r.won and count == r.events.size(), "combate paso a paso sin espera = combate entero")
+	return true
+
+
+func test_manual_skill_waits_for_player() -> bool:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var party := _party({"max_hp": 50000})
+	var warrior: Unit = party[0]
+	var foes: Array[Unit] = [Unit.from_enemy(GameData.ENEMIES[0], 60.0)]
+	var fight := Combat.new(party, foes, rng, {}, 100.0)
+	_check(not fight.request_skill(warrior), "no se lanza una habilidad sin cargar")
+	var casts := 0
+	while not fight.skill_ready(warrior) and not fight.finished:
+		fight.step()
+	for i in 20:
+		for e in fight.step():
+			if e.type == "skill" and e.src == warrior:
+				casts += 1
+	_check(casts == 0 and fight.skill_ready(warrior), "la habilidad lista espera al jugador")
+	_check(fight.request_skill(warrior), "el jugador la puede lanzar")
+	for e in fight.step():
+		if e.type == "skill" and e.src == warrior:
+			casts += 1
+	_check(casts == 1 and fight.skill_charge(warrior) < 0.1, "se lanza en el tick siguiente y vuelve a cargar")
+	return true
+
+
+func test_manual_expedition_combat() -> bool:
+	var ex := _expedition(3, {"attack": 200, "max_hp": 2000})
+	ex.manual_combat = true
+	var hits := [0]
+	ex.checkpoint.connect(func() -> void: hits[0] += 1)
+	var result := ex.enter(&"combat")
+	_check(result.has("fight") and ex.pending_rewards.is_empty(), "a mano: enter deja la pelea sin resolver")
+	_check(not ex.can_retreat() and hits[0] == 0, "durante la pelea no se retira ni se autoguarda")
+	while not ex.fight.finished:
+		ex.fight.step()
+	ex.finish_combat()
+	_check(result.combat.won and not ex.pending_rewards.is_empty() and ex.fight == null, "al cerrar la pelea hay recompensas")
+	_check(hits[0] == 1, "autoguardado al cerrar la pelea")
 	return true
 
 
