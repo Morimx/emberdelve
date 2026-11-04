@@ -12,7 +12,7 @@ const RARITY_WEIGHTS: PackedFloat32Array = [60.0, 25.0, 11.0, 3.5, 0.5]
 const SLOTS: Array[StringName] = [&"weapon", &"armor", &"charm"]
 const SLOT_NAMES := {&"weapon": "Weapon", &"armor": "Armor", &"charm": "Charm"}
 ## Un objeto de un solo héroe vale más que uno que antes equipaba a todo el grupo.
-const HERO_ITEM_POWER := 1.2
+const HERO_ITEM_POWER := 0.6
 ## Tipo -> nombre, slot, héroe ("" = cualquiera) y pesos de ataque, defensa y vida.
 const BASES := {
 	&"sword": {"name": "Sword", "slot": &"weapon", "hero": &"warrior", "atk": 1.0, "def": 0.0, "hp": 0.0},
@@ -79,4 +79,12 @@ static func make_item(base: StringName, rarity: int, depth: int) -> ItemData:
 	item.max_hp = maxi(0, int(round(value * def.hp)))
 	if def.slot == &"weapon":
 		item.attack = maxi(1, item.attack)
+	# Hasta el objeto más flojo aporta algo en su stat principal.
+	if item.power() == 0:
+		if def.hp >= def.atk and def.hp >= def.def:
+			item.max_hp = maxi(item.max_hp, 5)
+		elif def.def >= def.atk:
+			item.defense = 1
+		else:
+			item.attack = 1
 	return item

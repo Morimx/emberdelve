@@ -48,6 +48,7 @@ const TESTS: PackedStringArray = [
 	"test_stepped_combat_matches_run",
 	"test_manual_skill_waits_for_player",
 	"test_manual_expedition_combat",
+	"test_focus_and_heavy_blows",
 ]
 const TMP := "user://test_tmp.json"
 
@@ -162,6 +163,28 @@ func test_manual_expedition_combat() -> bool:
 	ex.finish_combat()
 	_check(result.combat.won and not ex.pending_rewards.is_empty() and ex.fight == null, "al cerrar la pelea hay recompensas")
 	_check(hits[0] == 1, "autoguardado al cerrar la pelea")
+	return true
+
+
+func test_focus_and_heavy_blows() -> bool:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9
+	var party := _party({"max_hp": 50000})
+	var foes: Array[Unit] = [Unit.from_enemy(GameData.ENEMIES[0], 40.0), Unit.from_enemy(GameData.ENEMIES[1], 40.0)]
+	foes[0].heavy_every = 2.0
+	var fight := Combat.new(party, foes, rng, {}, 100.0)
+	fight.set_focus(foes[1])
+	var first_hit: Unit = null
+	var windup := false
+	var heavy := false
+	for i in 80:
+		for e in fight.step():
+			if e.type == "hit" and not e.src.is_enemy and first_hit == null:
+				first_hit = e.dst
+			windup = windup or e.type == "windup"
+			heavy = heavy or (e.type == "hit" and e.get("heavy", false))
+	_check(first_hit == foes[1], "los héroes atacan al enemigo marcado")
+	_check(windup and heavy, "el élite avisa y después suelta el golpe cargado")
 	return true
 
 
@@ -450,7 +473,7 @@ func test_talent_bonus_reaches_expedition() -> bool:
 	var bonus := meta.hero_bonus(GameData.talents())
 	var ex := GameData.new_expedition(meta, 3)
 	var base := Unit.from_hero(GameData.HEROES[0], {})
-	_check(is_equal_approx(bonus.attack_pct, 0.12) and ex.party[0].attack > base.attack, "Might sube el ataque de los héroes")
+	_check(is_equal_approx(bonus.attack_pct, 0.08) and ex.party[0].attack > base.attack, "Might sube el ataque de los héroes")
 	_check(ex.torch == MetaState.BASE_TORCH + 1, "Torchbearer suma luz inicial")
 	_check(is_equal_approx(ex._run_bonus.gold_pct, 0.1), "Prospector llega al oro de la expedición")
 	return true

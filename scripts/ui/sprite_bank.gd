@@ -69,6 +69,7 @@ const SPRITES := {
 	&"chest": ["............", "..kkkkkkkk..", ".knnnnnnnnk.", ".kNNNNNNNNk.", "kssssssssssk", "knnnnggnnnnk", "knnnnkknnnnk", "knnnnnnnnnnk", "kNNNNNNNNNNk", "kssssssssssk", ".kkkkkkkkkk."],
 	&"shield": ["kkkkkkkkk", "kbbbgbbbk", "kbbbgbbbk", "kgggggggk", "kbbbgbbbk", ".kbbgbbk.", "..kbgbk..", "...kgk...", "....k...."],
 	&"cross": ["...kkk...", "...kwk...", "...kwk...", "kkkkwkkkk", "kwwwwwwwk", "kkkkwkkkk", "...kwk...", "...kwk...", "...kkk..."],
+	&"target": ["kkkkkkkkkkk", "kgggggggggk", ".kgggggggk.", "..kgggggk..", "...kgggk...", "....kgk....", ".....k....."],
 	&"door": ["..kkkkkk..", ".knnnnnnk.", "knNnnnnNnk", "knNnnnnNnk", "knNnnnnNnk", "knNnngnNnk", "knNnnnnNnk", "knNnnnnNnk", "knNnnnnNnk", "kkkkkkkkkk"],
 }
 

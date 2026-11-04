@@ -17,7 +17,8 @@ var _below := true
 var _bounce: Tween
 
 
-func show_for(target: Control, text: String, layer: Control) -> void:
+## buttons = false: consejo obligatorio del entrenamiento, sin "Got it" ni "Skip tips".
+func show_for(target: Control, text: String, layer: Control, buttons := true) -> void:
 	_target = target
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -43,17 +44,18 @@ func show_for(target: Control, text: String, layer: Control) -> void:
 	label.add_theme_font_size_override("font_size", 15)
 	label.add_theme_color_override("font_color", UiSkin.TEXT)
 	column.add_child(label)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_END
-	buttons.add_theme_constant_override("separation", 8)
-	column.add_child(buttons)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_END
+	row.add_theme_constant_override("separation", 8)
+	row.visible = buttons
+	column.add_child(row)
 	for entry in [[tr("Skip tips"), true], [tr("Got it"), false]]:
 		var b := Button.new()
 		b.text = entry[0]
 		b.focus_mode = Control.FOCUS_NONE  # el foco de teclado sigue en las cartas
 		b.add_theme_font_size_override("font_size", 14)
 		b.pressed.connect(func() -> void: dismissed.emit(entry[1]))
-		buttons.add_child(b)
+		row.add_child(b)
 	_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_arrow.size = ARROW
 	_arrow.draw.connect(_draw_arrow)

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_enemy"]
+
+[resource]
+script = ExtResource("1_enemy")
+id = &"dummy"
+display_name = "Training Dummy"
+color = Color(0.9, 0.86, 0.7, 1)
+max_hp = 260
+attack = 6
+defense = 0
+speed = 0.5
+gold_reward = 0
+is_boss = false

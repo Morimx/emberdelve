@@ -74,6 +74,7 @@ newest copy wins on startup.
 
 ## Credits
 
-All rights reserved: see [LICENSE](LICENSE). Fonts are third-party and listed in
-[LICENSES.md](LICENSES.md). Sprites, icons and
-backdrops are drawn in code by the project itself.
+All rights reserved: see [LICENSE](LICENSE). Fonts and a few decoration sprites (banners, columns,
+fountains, chest and spikes from 0x72's CC0 16x16 DungeonTileset II) are third-party and
+listed in [LICENSES.md](LICENSES.md). Characters, icons and backdrops are drawn in code
+by the project itself.

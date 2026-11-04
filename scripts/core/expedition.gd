@@ -19,7 +19,7 @@ const REST_HEAL := 0.3
 const DOOR_WEIGHTS := {&"combat": 3.0, &"elite": 1.0, &"event": 2.0}
 const LEVELUP_CHOICES := 3
 ## Cuánto más fuertes son los enemigos por cada sala de profundidad.
-const DEPTH_SCALING := 0.23
+const DEPTH_SCALING := 0.3
 ## Bonos de progreso permanente que afectan al combate (el resto ya está en las stats).
 const COMBAT_BONUS_KEYS: PackedStringArray = ["crit_chance", "lifesteal", "speed_pct", "skill_power_pct"]
 
@@ -232,10 +232,14 @@ func _resolve_combat(kind: StringName, result: Dictionary) -> void:
 		&"elite":
 			var elite := Unit.from_enemy(_random_enemy(), scale * 1.8)
 			elite.display_name = "Elite " + elite.display_name
+			elite.heavy_every = Combat.ELITE_HEAVY_EVERY
 			enemies.append(elite)
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 		&"boss":
-			enemies.append(Unit.from_enemy(_boss, difficulty * boss_power))
+			var boss := Unit.from_enemy(_boss, difficulty * boss_power)
+			boss.heavy_every = Combat.BOSS_HEAVY_EVERY
+			boss.heavy_area = true
+			enemies.append(boss)
 			enemies.append(Unit.from_enemy(_random_enemy(), scale))
 
 	var fighters: Array[Unit] = []

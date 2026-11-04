@@ -1,5 +1,6 @@
 extends SceneTree
-## Renderiza todos los biomas x escenarios del fondo en una grilla (columnas = biomas).
+## Renderiza todos los biomas x escenarios del fondo en una grilla (columnas = biomas;
+## la última es la sala de entrenamiento del tutorial).
 ## Uso (con ventana): godot --path . --script res://tools/preview_backdrops.gd -- <archivo.png>
 
 const TILE := Vector2i(480, 240)
@@ -12,7 +13,7 @@ func _initialize() -> void:
 	await process_frame
 	var dungeons := GameData.dungeons()
 	var vp := SubViewport.new()
-	vp.size = Vector2i(TILE.x * dungeons.size(), TILE.y * SCENES.size())
+	vp.size = Vector2i(TILE.x * (dungeons.size() + 1), TILE.y * SCENES.size())
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(vp)
 	for col in dungeons.size():
@@ -24,6 +25,14 @@ func _initialize() -> void:
 			vp.add_child(b)
 			b.set_biome(d.biome, d.wall_tint, d.floor_color)
 			b.set_scene(SCENES[row])
+	for row in SCENES.size():
+		var t := DungeonBackdrop.new()
+		t.position = Vector2(dungeons.size() * TILE.x, row * TILE.y)
+		t.size = Vector2(TILE)
+		vp.add_child(t)
+		t.set_biome(&"training", Color.WHITE, Color("2a2230"))
+		t.set_scene(SCENES[row])
+		t.set_campfire(SCENES[row] == &"camp")
 	# Dejar correr un rato para que aparezcan partículas y animaciones.
 	for i in 90:
 		await process_frame

@@ -9,6 +9,10 @@ extends Control
 const FLOOR_RATIO := 0.7
 const MAX_PARTICLES := 40
 const BIOME_ACCENT := {&"catacombs": Color("6b3fa0"), &"crypt": Color("1f6f6a"), &"forge": Color("8a2a1e")}
+## Estandarte de pared de cada bioma (pack de 0x72) y color de su fuente en el santuario.
+const BIOME_BANNER := {&"catacombs": "wall_banner_red", &"crypt": "wall_banner_blue", &"forge": "wall_banner_yellow"}
+const BIOME_FOUNTAIN := {&"catacombs": "blue", &"crypt": "blue", &"forge": "red"}
+const PROP_SCALE := 3.0
 const BOSS_GLOW := {&"catacombs": Color(0.6, 0.35, 1.0, 0.55), &"crypt": Color(0.3, 0.9, 0.9, 0.5), &"forge": Color(1.0, 0.45, 0.15, 0.6)}
 
 var _light := 1.0
@@ -121,6 +125,9 @@ func _draw() -> void:
 	if size.x < 8.0 or size.y < 8.0:
 		return
 	var floor_y := size.y * FLOOR_RATIO
+	if _biome == &"training":
+		_draw_training(floor_y)
+		return
 	# Pared: textura del bioma a mitad de tamaño con transformación x2 (pixeles gruesos).
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(2, 2))
 	draw_texture_rect(_wall_texture(_biome), Rect2(Vector2.ZERO, Vector2(size.x / 2.0, floor_y / 2.0)), true, _wall_tint)
@@ -132,6 +139,14 @@ func _draw() -> void:
 	_draw_arch(Vector2(size.x * 0.5, floor_y), minf(size.x * (0.19 if boss else 0.14), arch_h * (0.5 if boss else 0.42)), arch_h)
 	if _scene == &"elite" or boss:
 		_draw_banners(floor_y, boss)
+	var half := minf(size.x * (0.19 if boss else 0.14), arch_h * (0.5 if boss else 0.42))
+	if _scene == &"shrine":
+		_draw_fountains(floor_y, half)
+	else:
+		if _scene != &"elite" and not boss:
+			_draw_wall_banners(floor_y, half)
+		if not boss:  # el jefe ya tiene estandartes y antorchas junto al arco
+			_draw_columns(floor_y, arch_h, half)
 	# Piso
 	draw_rect(Rect2(0, floor_y, size.x, size.y - floor_y), _floor_color)
 	draw_texture_rect(_cobble_texture(), Rect2(0, floor_y, size.x, size.y - floor_y), true, _floor_color.lightened(0.35))
@@ -221,6 +236,86 @@ func _draw_banners(floor_y: float, boss: bool) -> void:
 		var tip := PackedVector2Array([Vector2(x - w / 2.0, 14 + h), Vector2(x + w / 2.0, 14 + h), Vector2(x, 14 + h + 14)])
 		draw_colored_polygon(tip, accent)
 		draw_rect(Rect2(x - 6, 14 + h * 0.35, 12, 12), Color("f2c14e"))
+
+
+## Sala de entrenamiento (tutorial): toda de baldosas del pack de 0x72, con su puerta,
+## estandartes verdes y cajas. Se distingue a propósito de las mazmorras del juego.
+func _draw_training(floor_y: float) -> void:
+	var t := 16.0 * PROP_SCALE
+	var wall := Props.texture("wall_mid")
+	var holes := [Props.texture("wall_hole_1"), Props.texture("wall_hole_2")]
+	var rows := ceili(floor_y / t)
+	var cols := ceili(size.x / t) + 1
+	for r in rows:
+		var y := floor_y - (r + 1) * t
+		for c in cols:
+			var tex: Texture2D = wall
+			var h := (c * 7 + r * 13) % 23
+			if h == 3:
+				tex = holes[(c + r) % 2]
+			draw_texture_rect(tex, Rect2(c * t, y, t, t), false)
+	for c in cols:
+		draw_texture_rect(Props.texture("wall_top_mid"), Rect2(c * t, floor_y - rows * t - t * 0.5, t, t), false)
+	# Piso de baldosas variadas (siempre las mismas en cada lugar).
+	var floor_rows := ceili((size.y - floor_y) / t)
+	for r in floor_rows:
+		for c in cols:
+			var n := 1 + (c * 31 + r * 17 + c * r) % 8
+			draw_texture_rect(Props.texture("floor_%d" % n), Rect2(c * t, floor_y + r * t, t, t), false)
+	draw_rect(Rect2(0, floor_y - 3, size.x, 4), Color(0, 0, 0, 0.45))
+	# Puerta al centro, con marco.
+	var cx := size.x * 0.5
+	var leaf := Rect2(cx - t, floor_y - t * 2.0, t * 2.0, t * 2.0)
+	draw_rect(leaf.grow(-4.0), Color("0b0a12"))  # oscuridad detrás de la puerta abierta
+	draw_texture_rect(Props.texture("doors_leaf_open"), leaf, false)
+	draw_texture_rect(Props.texture("doors_frame_left"), Rect2(leaf.position.x - t, leaf.position.y, t, t * 2.0), false)
+	draw_texture_rect(Props.texture("doors_frame_right"), Rect2(leaf.end.x, leaf.position.y, t, t * 2.0), false)
+	draw_texture_rect(Props.texture("doors_frame_top"), Rect2(leaf.position.x, leaf.position.y - t, t * 2.0, t), false)
+	# Estandartes, palanca y cajas.
+	for x in [size.x * 0.3, size.x * 0.7]:
+		draw_texture_rect(Props.texture("wall_banner_green"), Rect2(x - t / 2.0, maxf(4.0, floor_y - t * 3.2), t, t), false)
+	draw_texture_rect(Props.texture("lever_left"), Rect2(cx + t * 2.4, floor_y - t * 1.6, t, t), false)
+	var crate := Props.texture("crate")
+	for x in [size.x * 0.05, size.x * 0.11, size.x * 0.92]:
+		draw_texture_rect(crate, Rect2(x - t / 2.0, floor_y - t * 1.5 + 6.0, t, t * 1.5), false)
+
+
+## Estandartes chicos a mitad de camino entre cada antorcha y su columna.
+func _draw_wall_banners(floor_y: float, half: float) -> void:
+	var tex := Props.texture(BIOME_BANNER.get(_biome, "wall_banner_red"))
+	var side := 16.0 * PROP_SCALE
+	var gap := (size.x * 0.5 - half - 16.0 * PROP_SCALE) - size.x * 0.22
+	if gap < side + 8.0:
+		return  # escena angosta: no entran sin tapar la antorcha
+	for dir in [-1.0, 1.0]:
+		var x: float = size.x * 0.5 + dir * (half + 16.0 * PROP_SCALE + gap * 0.5)
+		draw_texture_rect(tex, Rect2(x - side / 2.0, floor_y * 0.2, side, side), false, _wall_tint.lerp(Color.WHITE, 0.55))
+
+
+## Columnas de piedra a los lados del arco, apoyadas en el piso y teñidas como la pared.
+func _draw_columns(floor_y: float, arch_h: float, half: float) -> void:
+	var tex := Props.texture("column")
+	var w := 16.0 * PROP_SCALE * 0.75
+	var h := minf(48.0 * PROP_SCALE * 0.75, arch_h * 0.95)
+	for side in [-1.0, 1.0]:
+		var x: float = size.x * 0.5 + side * (half + w * 0.5 + 6.0)
+		draw_texture_rect(tex, Rect2(x - w / 2.0, floor_y - h + 4.0, w, h), false, _wall_tint.darkened(0.05))
+
+
+## Santuario: dos fuentes animadas en la pared, a los lados del altar.
+func _draw_fountains(floor_y: float, half: float) -> void:
+	var color: String = BIOME_FOUNTAIN.get(_biome, "blue")
+	var frame := int(_time * 6.0) % 3
+	var mid := Props.frames("wall_fountain_mid_" + color, 3)[frame]
+	var basin := Props.frames("wall_fountain_basin_" + color, 3)[frame]
+	var top := Props.texture("wall_fountain_top_1")
+	var side := 16.0 * PROP_SCALE
+	var tint := _wall_tint.lerp(Color.WHITE, 0.5)
+	for dir in [-1.0, 1.0]:
+		var left: float = size.x * 0.5 + dir * (half + side * 0.5 + 6.0) - side / 2.0
+		draw_texture_rect(top, Rect2(left, floor_y - side * 3.0, side, side), false, tint)
+		draw_texture_rect(mid, Rect2(left, floor_y - side * 2.0, side, side), false, tint)
+		draw_texture_rect(basin, Rect2(left, floor_y - side, side, side), false, tint)
 
 
 func _draw_altar(floor_y: float) -> void:

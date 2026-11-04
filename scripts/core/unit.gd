@@ -17,6 +17,10 @@ var skill_power: float = 0.0
 var front: bool = true
 var is_enemy: bool = false
 var gold_reward: int = 0
+## Golpe cargado (élites y jefes): cada cuántos segundos lo prepara (0 = nunca) y si
+## alcanza a todo el grupo.
+var heavy_every: float = 0.0
+var heavy_area: bool = false
 
 
 func is_alive() -> bool:

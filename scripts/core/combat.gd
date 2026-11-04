@@ -9,7 +9,14 @@ const TICK := 0.1
 const MAX_TIME := 90.0
 const SHIELD_DURATION := 3.0
 ## Segundos que una habilidad lista espera al jugador antes de lanzarse sola.
-const AUTO_CAST_DELAY := 3.0
+const AUTO_CAST_DELAY := 4.0
+## Golpe cargado: aviso previo, multiplicador y cada cuánto lo preparan élites y jefes.
+## Se bloquea con Muro de escudos o se corta con una Puñalada al que lo está cargando.
+const WINDUP := 1.6
+const HEAVY_MULT := 2.6
+const HEAVY_AREA_MULT := 2.0
+const ELITE_HEAVY_EVERY := 7.0
+const BOSS_HEAVY_EVERY := 6.0
 ## Curación automática: solo si alguien bajó de esta fracción de vida.
 const AUTO_HEAL_BELOW := 0.75
 
@@ -20,6 +27,8 @@ var finished := false
 var won := false
 ## Espera antes del lanzamiento automático (0 = apenas está lista).
 var auto_delay := 0.0
+## Enemigo que el jugador marcó: los héroes lo atacan primero mientras viva.
+var focus: Unit
 
 var _rng: RandomNumberGenerator
 var _all: Array[Unit] = []
@@ -36,6 +45,8 @@ var _def_bonus := 0
 var _lifesteal := 0.0
 var _extra_crit := 0.0
 var _skill_mult := 1.0
+var _heavy_timers := {}
+var _windups := {}
 
 
 func _init(p_party: Array[Unit], p_enemies: Array[Unit], rng: RandomNumberGenerator, mods: Dictionary = {}, p_auto_delay := 0.0) -> void:
@@ -56,6 +67,8 @@ func _init(p_party: Array[Unit], p_enemies: Array[Unit], rng: RandomNumberGenera
 		_attack_timers[u] = rng.randf_range(0.3, 1.0) / _speeds[u]
 		_skill_timers[u] = u.skill_cooldown
 		_waiting[u] = 0.0
+		if u.heavy_every > 0.0:
+			_heavy_timers[u] = u.heavy_every * 0.6
 	_check_end()
 
 
@@ -79,6 +92,29 @@ func skill_charge(u: Unit) -> float:
 	return clampf(1.0 - _skill_timers.get(u, 0.0) / u.skill_cooldown, 0.0, 1.0)
 
 
+## Segundos que le faltan al enemigo para soltar su golpe cargado (-1 si no carga).
+func windup_left(u: Unit) -> float:
+	return _windups.get(u, -1.0)
+
+
+## Deja lista ya la habilidad de un héroe (el entrenamiento la pide en el momento justo).
+func charge_skill(u: Unit) -> void:
+	if _skill_timers.has(u):
+		_skill_timers[u] = 0.0
+		_waiting[u] = 0.0
+
+
+## Alarga los golpes que se están cargando (el entrenamiento da tiempo a reaccionar).
+func delay_windups(extra: float) -> void:
+	for u in _windups:
+		_windups[u] += extra
+
+
+func set_focus(u: Unit) -> void:
+	if u != null and u.is_enemy and u.is_alive():
+		focus = u
+
+
 ## El jugador pide lanzar la habilidad; se aplica en el próximo tick. false si no está lista.
 func request_skill(u: Unit) -> bool:
 	if not skill_ready(u) or u.is_enemy:
@@ -98,6 +134,8 @@ func step() -> Array[Dictionary]:
 			continue
 		if u.skill != &"":
 			_tick_skill(u, events)
+		if u.heavy_every > 0.0 and _tick_heavy(u, events):
+			continue
 		_attack_timers[u] -= TICK
 		if _attack_timers[u] > 0.0:
 			continue
@@ -141,6 +179,43 @@ func _tick_skill(u: Unit, events: Array[Dictionary]) -> void:
 	_waiting[u] = 0.0
 
 
+## Carga y suelta el golpe pesado. true mientras carga (ese tick no ataca normal).
+func _tick_heavy(u: Unit, events: Array[Dictionary]) -> bool:
+	if _windups.has(u):
+		_windups[u] -= TICK
+		if _windups[u] > 0.0:
+			return true
+		_windups.erase(u)
+		_heavy_timers[u] = u.heavy_every
+		var targets: Array[Unit] = []
+		if u.heavy_area:
+			for h in party:
+				if h.is_alive():
+					targets.append(h)
+		else:
+			var one := _pick_target(u, party)
+			if one != null:
+				targets.append(one)
+		for foe in targets:
+			var mult := HEAVY_AREA_MULT if u.heavy_area else HEAVY_MULT
+			var dmg := float(u.attack) * mult * _rng.randf_range(0.9, 1.1) - float(foe.defense + _def_bonus) * 0.5
+			var shielded := t < _shield_until
+			if shielded:
+				dmg *= 1.0 - _shield_power
+			var amount := maxi(1, int(round(dmg)))
+			foe.hp = maxi(0, foe.hp - amount)
+			events.append({"t": t, "type": "hit", "src": u, "dst": foe, "amount": amount, "crit": false, "heavy": true, "blocked": shielded, "hp": foe.hp})
+			if not foe.is_alive():
+				events.append({"t": t, "type": "death", "dst": foe})
+		return true
+	_heavy_timers[u] -= TICK
+	if _heavy_timers[u] <= 0.0:
+		_windups[u] = WINDUP
+		events.append({"t": t, "type": "windup", "src": u, "time": WINDUP})
+		return true
+	return false
+
+
 func _attack(u: Unit, events: Array[Dictionary]) -> void:
 	var foe := _pick_target(u, enemies if not u.is_enemy else party)
 	if foe == null:
@@ -151,14 +226,22 @@ func _attack(u: Unit, events: Array[Dictionary]) -> void:
 	var crit := _rng.randf() < u.crit_chance + (_extra_crit if not u.is_enemy else 0.0)
 	if crit:
 		dmg *= 2.0
+	var interrupted := false
 	if _backstab.get(u, false):
 		dmg *= 3.0 * _skill_mult * u.skill_power
 		_backstab[u] = false
+		# La puñalada corta el golpe cargado del enemigo.
+		if _windups.has(foe):
+			_windups.erase(foe)
+			_heavy_timers[foe] = foe.heavy_every
+			interrupted = true
 	if not foe.is_enemy and t < _shield_until:
 		dmg *= 1.0 - _shield_power
 	var amount := maxi(1, int(round(dmg)))
 	foe.hp = maxi(0, foe.hp - amount)
 	events.append({"t": t, "type": "hit", "src": u, "dst": foe, "amount": amount, "crit": crit, "hp": foe.hp})
+	if interrupted:
+		events.append({"t": t, "type": "interrupt", "src": u, "dst": foe})
 	if not u.is_enemy and _lifesteal > 0.0 and u.hp < u.max_hp:
 		var heal := int(round(amount * _lifesteal))
 		if heal > 0:
@@ -181,7 +264,15 @@ static func _any_alive(units: Array[Unit]) -> bool:
 	return false
 
 
-static func _pick_target(attacker: Unit, foes: Array[Unit]) -> Unit:
+func _pick_target(attacker: Unit, foes: Array[Unit]) -> Unit:
+	if not attacker.is_enemy:
+		# La puñalada busca al que está cargando; si no, todos siguen la marca del jugador.
+		if _backstab.get(attacker, false):
+			for f in foes:
+				if f.is_alive() and _windups.has(f):
+					return f
+		if focus != null and focus.is_alive():
+			return focus
 	var best: Unit = null
 	for f in foes:
 		if not f.is_alive():

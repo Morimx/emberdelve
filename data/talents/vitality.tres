@@ -6,7 +6,7 @@
 script = ExtResource("1_talent")
 id = &"vitality"
 display_name = "Vitality"
-description = "+7% max health per level."
+description = "+4% max health per level."
 icon = &"armor"
 branch = &"steel"
 pos = Vector2(0.28, 0.72)
@@ -15,6 +15,6 @@ currency = &"gold"
 base_cost = 40
 cost_growth = 1.6
 stat = &"max_hp_pct"
-value = 0.07
+value = 0.04
 requires = Array[StringName]([&"ember"])
 key = false

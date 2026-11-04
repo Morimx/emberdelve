@@ -6,7 +6,7 @@
 script = ExtResource("1_talent")
 id = &"might"
 display_name = "Might"
-description = "+6% attack per level."
+description = "+4% attack per level."
 icon = &"weapon"
 branch = &"steel"
 pos = Vector2(0.12, 0.72)
@@ -15,6 +15,6 @@ currency = &"gold"
 base_cost = 40
 cost_growth = 1.6
 stat = &"attack_pct"
-value = 0.06
+value = 0.04
 requires = Array[StringName]([&"ember"])
 key = false

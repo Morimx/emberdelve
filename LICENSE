@@ -6,4 +6,5 @@ publish, sublicense or sell this software or any part of it, or to upload it to
 any game portal or store, without prior written permission from the author.
 
 Third-party fonts in assets/fonts are distributed under their own licenses
-(SIL Open Font License 1.1), listed in LICENSES.md.
+(SIL Open Font License 1.1), and the decoration sprites in assets/props come from
+0x72's 16x16 DungeonTileset II (CC0 1.0). Both are listed in LICENSES.md.

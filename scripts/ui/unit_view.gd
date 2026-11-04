@@ -5,10 +5,18 @@ extends VBoxContainer
 
 const SIZE_NORMAL := 96.0
 const SIZE_BOSS := 136.0
+const WINDUP_COLOR := Color(1.6, 0.45, 0.35)
+const MARKER_Y := -46.0
+
+## Clic sobre un enemigo: el jugador lo marca como objetivo.
+signal clicked(unit: Unit)
 
 var unit: Unit
 var _base_x := 0.0
 var _idle: Tween
+var _windup: Tween
+var _marker: TextureRect
+var _marker_tw: Tween
 
 @onready var _name: Label = %Name
 @onready var _body: Control = %Body
@@ -33,6 +41,55 @@ func setup(u: Unit, hp: int) -> void:
 		_name.text = tr(u.display_name)
 	_bar.max_value = u.max_hp
 	set_hp(hp)
+	if u.is_enemy:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		tooltip_text = tr("Click to focus this enemy")
+		_marker = TextureRect.new()
+		_marker.texture = SpriteBank.texture(&"target")
+		_marker.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_marker.size = Vector2(28, 20)
+		_marker.visible = false
+		_body.add_child(_marker)
+		_marker.position = Vector2((_body.custom_minimum_size.x - _marker.size.x) / 2.0, MARKER_Y)
+
+
+func _gui_input(event: InputEvent) -> void:
+	var click := event as InputEventMouseButton
+	if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and unit.is_alive():
+		clicked.emit(unit)
+		accept_event()
+
+
+## Marca de objetivo (flecha que rebota sobre el enemigo elegido).
+func set_targeted(on: bool) -> void:
+	if _marker == null:
+		return
+	_marker.visible = on and unit.is_alive()
+	if _marker_tw:
+		_marker_tw.kill()
+		_marker_tw = null
+	_marker.position.y = MARKER_Y
+	if _marker.visible:
+		_marker_tw = _marker.create_tween().set_loops()
+		_marker_tw.tween_property(_marker, "position:y", MARKER_Y + 5.0, 0.3).set_trans(Tween.TRANS_SINE)
+		_marker_tw.tween_property(_marker, "position:y", MARKER_Y, 0.3).set_trans(Tween.TRANS_SINE)
+
+
+## El enemigo carga un golpe fuerte: late en rojo y crece hasta soltarlo.
+func wind_up(seconds: float) -> void:
+	end_windup()
+	_windup = create_tween().set_loops(maxi(1, int(seconds / 0.3)))
+	_windup.tween_property(_body, "modulate", WINDUP_COLOR, 0.15)
+	_windup.tween_property(_body, "modulate", Color.WHITE, 0.15)
+
+
+func end_windup() -> void:
+	if _windup:
+		_windup.kill()
+		_windup = null
+	_body.modulate = Color.WHITE
 
 
 func set_hp(hp: int) -> void:
@@ -92,6 +149,8 @@ func healed() -> void:
 
 func die() -> void:
 	_stop_idle()
+	end_windup()
+	set_targeted(false)
 	var tw := create_tween().set_parallel()
 	tw.tween_property(_sprite, "modulate:a", 0.25, 0.35)
 	tw.tween_property(_sprite, "rotation", PI / 2.0 if not unit.is_enemy else -PI / 2.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)

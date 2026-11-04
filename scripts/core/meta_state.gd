@@ -44,6 +44,8 @@ var language := ""
 ## Consejos del tutorial ya mostrados (id -> true). tips_off = el jugador los salteó.
 var tips_seen := {}
 var tips_off := false
+## true cuando el jugador terminó (o salteó) la sala de entrenamiento.
+var tutorial_done := false
 
 
 func should_tip(id: String) -> bool:
@@ -283,6 +285,7 @@ func to_dict() -> Dictionary:
 		"scores": scores.duplicate(true),
 		"settings": {"muted": muted, "volume": volume, "language": language},
 		"tips": {"seen": tips_seen.keys(), "off": tips_off},
+		"tutorial_done": tutorial_done,
 		"saved_at": Time.get_unix_time_from_system(),
 	}
 
@@ -391,6 +394,8 @@ static func from_dict(d: Dictionary) -> MetaState:
 		m.muted = bool(settings.get("muted", false))
 		m.volume = clampf(float(settings.get("volume", 0.8)), 0.0, 1.0)
 		m.language = String(settings.get("language", ""))
+	# Guardados de antes del entrenamiento: quien ya jugó no lo necesita.
+	m.tutorial_done = bool(d.get("tutorial_done", m.runs > 0))
 	# Guardados de antes del tutorial: quien ya jugó no necesita los consejos.
 	var tips = d.get("tips", {"off": m.runs > 0})
 	if tips is Dictionary:

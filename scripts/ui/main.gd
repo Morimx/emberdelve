@@ -38,6 +38,9 @@ const SHAKE_MAX := Vector2(10, 6)
 const LANES_BOTTOM := -6.0
 ## Filas de la tabla de puntajes en el resultado (la tabla guarda Score.TABLE_SIZE).
 const SCORE_ROWS := 5
+const TRAINING_GOLD := 25
+## Ancho normal de una carta (choice_card.tscn).
+const CARD_WIDTH := 212.0
 
 var meta: MetaState
 var expedition: Expedition
@@ -73,6 +76,11 @@ var _backdrop: DungeonBackdrop
 ## Puntajes sobre la escena: la tabla al terminar una expedición o el récord en el campamento.
 var _score_panel: Control
 var _tip: CoachTip
+## Sala de entrenamiento en curso (la referencia la mantiene viva mientras se juega).
+var _training: TutorialRun
+var _card_width := 0.0
+## Botones de habilidad de la pelea actual (para señalarlos desde los consejos).
+var _skill_buttons_for_tip: Array[SkillButton] = []
 var _lanes: HBoxContainer
 var _enemy_row: HBoxContainer
 var _party_row: HBoxContainer
@@ -97,11 +105,9 @@ func _ready() -> void:
 	Locale.apply(meta.language, Platform.system_language())
 	_update_hud()
 	var resumed := RunStore.load_run(meta)
-	if resumed == null and meta.runs == 0 and meta.should_tip("start"):
-		# Primera vez: directo a la primera mazmorra, sin pasar por el campamento.
-		meta.mark_tip("start")
-		_rewarded_offered = true  # sin anuncio antes de la primera partida
-		_start_expedition(&"catacombs", tr("Welcome, delver! Lead your party through the catacombs and bring back their treasure."))
+	if resumed == null and meta.runs == 0 and not meta.tutorial_done:
+		# Primera vez: directo a la sala de entrenamiento, sin pasar por el campamento.
+		_start_training()
 		return
 	if resumed == null:
 		_show_camp(tr("This save comes from a newer version of the game and won't be modified.") if meta.newer_save else "")
@@ -203,6 +209,8 @@ func _show_camp(message: String) -> void:
 func _show_dungeon_select() -> void:
 	_set_text(tr("Choose a dungeon"), tr("Beat a dungeon's boss to open the next one."))
 	_clear_cards()
+	_fit_cards(GameData.DUNGEONS.size() + 2)
+	_add_card(Props.scaled("doors_leaf_closed", 1), tr("Training Hall"), tr("Replay the short guided training."), tr("Tutorial"), Color("5fbf4a"), _start_training)
 	for d in GameData.dungeons():
 		var open := meta.is_dungeon_unlocked(d)
 		var footer := tr("Cleared") if meta.cleared.has(String(d.id)) else (tr("Open") if open else tr("Locked"))
@@ -211,6 +219,31 @@ func _show_dungeon_select() -> void:
 		card.disabled = not open
 	_add_card(SpriteBank.icon(&"fire"), tr("Back"), tr("Return to the camp."), "", UiSkin.EDGE, func() -> void: _show_camp(""))
 	_focus_first_card()
+
+
+## Sala de entrenamiento: nivel guiado aparte (TutorialRun). La primera vez lleva
+## directo a las catacumbas al terminar; repetirlo desde el menú vuelve al campamento.
+func _start_training() -> void:
+	_clear_cards()
+	_clear_arena()
+	var first := not meta.tutorial_done
+	_training = TutorialRun.new(self)
+	_training.finished.connect(_on_training_finished.bind(first))
+	_training.play()
+
+
+func _on_training_finished(completed: bool, first: bool) -> void:
+	_training = null
+	meta.tutorial_done = true
+	if completed and first:
+		meta.gold += TRAINING_GOLD
+	_save_meta()
+	if first:
+		_rewarded_offered = true  # sin anuncio antes de la primera partida
+		var intro := tr("Training complete! +%d gold. Now the real delve begins: the Catacombs.") % TRAINING_GOLD if completed else tr("Welcome, delver! Lead your party through the catacombs and bring back their treasure.")
+		_start_expedition(&"catacombs", intro)
+	else:
+		_show_camp(tr("Training complete!"))
 
 
 func _show_skills() -> void:
@@ -317,7 +350,7 @@ func _show_rewards() -> void:
 			&"supplies":
 				_add_card(SpriteBank.icon(&"torch"), tr("Supplies"), tr("+%d light and %d gold.") % [Expedition.SUPPLIES_TORCH, r.gold], tr("+%d light") % Expedition.SUPPLIES_TORCH, UiSkin.TORCH, _on_reward.bind(i))
 			&"rest":
-				_add_card(SpriteBank.icon(&"cross"), tr("Rest"), tr("The party heals %d%% of its health.") % int(Expedition.REST_HEAL * 100), tr("Heal"), UiSkin.HEAL, _on_reward.bind(i))
+				_add_card(Props.scaled("flask_big_red", 2), tr("Rest"), tr("The party heals %d%% of its health.") % int(Expedition.REST_HEAL * 100), tr("Heal"), UiSkin.HEAL, _on_reward.bind(i))
 			&"boon":  # autoguardados de versiones anteriores
 				_add_card(SpriteBank.icon(&"fire"), tr(r.boon.display_name), tr(r.boon.description), tr("Blessing"), BOON_COLOR, _on_reward.bind(i))
 	_focus_first_card()
@@ -561,6 +594,7 @@ func _play_combat(result: Dictionary) -> void:
 		button.pressed.connect(func() -> void: fight.request_skill(u))
 		_cards.add_child(button)
 		skill_buttons.append(button)
+	_skill_buttons_for_tip = skill_buttons
 	var skip := Button.new()
 	skip.text = tr("%d  Skip fight") % (skill_buttons.size() + 1)
 	skip.custom_minimum_size = Vector2(160, 44)
@@ -570,7 +604,11 @@ func _play_combat(result: Dictionary) -> void:
 		skipping = true
 		fight.auto_delay = 0.0)
 	_cards.add_child(skip)
-	_coach("combat", skill_buttons[0] if not skill_buttons.is_empty() else skip, tr("Your heroes attack on their own. Click a skill (or press 1-3) when it glows. S changes the speed."))
+	for u: Unit in result.enemies:
+		var view: UnitView = unit_views.get(u)
+		if view:
+			view.clicked.connect(_on_focus_enemy.bind(fight))
+	_coach("combat", skill_buttons[0] if not skill_buttons.is_empty() else skip, tr("Your heroes attack on their own. Click a skill (or press 1-3) when it glows, and click an enemy to focus it."))
 	await get_tree().process_frame  # que el layout ubique las vistas antes del primer número
 
 	var boss_fight: bool = result.kind == &"boss"
@@ -615,6 +653,18 @@ func _play_combat(result: Dictionary) -> void:
 	_cards.remove_meta("busy")
 
 
+## El jugador marca un enemigo: todo el grupo lo ataca primero.
+func _on_focus_enemy(u: Unit, fight: Combat) -> void:
+	if fight.finished or not u.is_alive():
+		return
+	fight.set_focus(u)
+	Audio.play(&"door")
+	for other: Unit in fight.enemies:
+		var view: UnitView = unit_views.get(other)
+		if view:
+			view.set_targeted(other == u)
+
+
 ## Aplica un evento a las vistas. Devuelve una pausa extra (hit-stop) para impactos fuertes.
 func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 	var target: UnitView = unit_views.get(e.get("dst"))
@@ -628,12 +678,20 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 			Audio.play(&"crit" if e.crit else &"hit")
 			if source:
 				source.lunge()
+			var heavy: bool = e.get("heavy", false)
+			if source and heavy:
+				source.end_windup()
 			if target:
-				target.hurt(Color(1, 0.85, 0.3) if e.crit else Color(1, 0.4, 0.4), e.crit)
-				_float_at(target.hit_point(), ("%d!" if e.crit else "%d") % e.amount, UiSkin.GOLD if e.crit else UiSkin.TEXT, e.crit)
+				target.hurt(Color(1, 0.85, 0.3) if e.crit else Color(1, 0.4, 0.4), e.crit or heavy)
+				_float_at(target.hit_point(), ("%d!" if e.crit or heavy else "%d") % e.amount, UiSkin.DANGER if heavy else (UiSkin.GOLD if e.crit else UiSkin.TEXT), e.crit or heavy)
+				if e.get("blocked", false):
+					_float_at(target.hit_point() - Vector2(0, 30), tr("Blocked"), Color("5fd6e8"))
 			if target and not e.dst.is_enemy and e.hp > 0 and float(e.hp) / e.dst.max_hp < 0.3 and not _complained.has(e.dst):
 				_complained[e.dst] = true
 				_say(target, e.dst.id, &"low_hp", UiSkin.DANGER)
+			if heavy:
+				_add_trauma(0.3 if e.get("blocked", false) else 0.6)
+				return 0.1
 			if e.crit:
 				if source and not e.src.is_enemy and randf() < 0.15:
 					_say(source, e.src.id, &"crit", UiSkin.GOLD)
@@ -648,6 +706,20 @@ func _apply_event(e: Dictionary, boss_fight: bool) -> float:
 						Audio.play(&"heal")
 					target.healed()
 					_float_at(target.hit_point(), "+%d" % e.amount, UiSkin.HEAL)
+		"windup":
+			if source and not skipping:
+				source.wind_up(e.time)
+				Audio.play(&"skill")
+				_float_at(source.hit_point() - Vector2(0, 40), tr("Heavy blow!"), UiSkin.DANGER, true)
+				if not _skill_buttons_for_tip.is_empty():
+					_coach("heavy", _skill_buttons_for_tip[0], tr("An enemy is charging a heavy blow! Raise Shield Wall to block it, or Backstab it to interrupt."))
+		"interrupt":
+			if target:
+				target.end_windup()
+				if not skipping:
+					Audio.play(&"crit")
+					_float_at(target.hit_point() - Vector2(0, 40), tr("Interrupted!"), UiSkin.GOLD, true)
+					_add_trauma(0.35)
 		"skill":
 			if source and not skipping:
 				Audio.play(&"skill")
@@ -686,6 +758,8 @@ func _float_at(global_point: Vector2, text: String, color: Color, big := false) 
 	_fx.add_child(label)
 	label.position = global_point - _fx.global_position + Vector2(randf_range(-10, 10), 0)
 	label.popup(text, color, big)
+	# Que los textos largos ("Interrupted!") no se corten en los bordes.
+	label.position.x = clampf(label.position.x, 4.0, _fx.size.x - label.size.x - 4.0)
 
 
 func _add_trauma(amount: float) -> void:
@@ -715,13 +789,17 @@ func _play_event(result: Dictionary) -> void:
 
 func _animate_chest(foot: Vector2, item: ItemData, gold_amount: int) -> void:
 	var chest := _fx_sprite(&"chest", foot, 84.0)
+	var chest_frames := Props.frames("chest_full_open", 3)
+	chest.texture = chest_frames[0]
 	var tw := create_tween()
 	for i in 3:
 		tw.tween_property(chest, "rotation", 0.12, 0.06)
 		tw.tween_property(chest, "rotation", -0.12, 0.06)
 	tw.tween_property(chest, "rotation", 0.0, 0.05)
 	await tw.finished
-	chest.texture = SpriteBank.texture(&"chest_open")
+	chest.texture = chest_frames[1]
+	await get_tree().create_timer(0.07).timeout
+	chest.texture = chest_frames[2]
 	chest.scale = Vector2(1.2, 0.85)
 	create_tween().tween_property(chest, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	Audio.play(&"coin")
@@ -758,12 +836,19 @@ func _animate_chest(foot: Vector2, item: ItemData, gold_amount: int) -> void:
 func _animate_trap(damage: Dictionary) -> void:
 	var party_rect := _party_row.get_global_rect()
 	var spikes := _fx_sprite(&"spikes", party_rect.end, 0.0)
+	var spike_frames: Array[Texture2D] = []
+	for i in 4:
+		spike_frames.append(Props.scaled("floor_spikes_anim_f%d" % i, 3))
+	spikes.texture = spike_frames[0]
 	spikes.stretch_mode = TextureRect.STRETCH_TILE
-	spikes.size = Vector2(party_rect.size.x, 40)
+	spikes.size = Vector2(party_rect.size.x, 48)
 	# A la altura de los pies (por encima de las barras de vida y los números).
 	spikes.position = Vector2(party_rect.position.x, party_rect.end.y - 20) - _fx.global_position
 	var tw := create_tween()
 	tw.tween_property(spikes, "position:y", spikes.position.y - 34.0, 0.08).set_ease(Tween.EASE_OUT)
+	for f in range(1, 4):
+		tw.tween_callback(func() -> void: spikes.texture = spike_frames[f])
+		tw.tween_interval(0.04)
 	await tw.finished
 	Audio.play(&"crit")
 	_add_trauma(0.55)
@@ -842,6 +927,15 @@ func _coach(id: String, target: Control, text: String) -> void:
 	_tip.show_for(target, text, _fx)
 
 
+## Consejo obligatorio del entrenamiento: sin botones, siempre se muestra.
+func _point(target: Control, text: String) -> void:
+	_dismiss_tip()
+	if not is_instance_valid(target):
+		return
+	_tip = CoachTip.new()
+	_tip.show_for(target, text, _fx, false)
+
+
 func _on_tip_dismissed(skip_all: bool) -> void:
 	if skip_all:
 		meta.tips_off = true
@@ -908,7 +1002,9 @@ func _say(anchor: Control, speaker: StringName, context: StringName, accent: Col
 		return
 	_last_bubble = now
 	var rect := anchor.get_global_rect()
-	SpeechBubble.new().say(tr(text), Vector2(rect.get_center().x, rect.position.y), accent, _fx)
+	# Dentro de la escena: sin tapar el HUD ni salirse por los costados.
+	var stage := (_backdrop.get_parent() as Control).get_global_rect()
+	SpeechBubble.new().say(tr(text), Vector2(rect.get_center().x, rect.position.y), accent, _fx, stage)
 
 
 func _add_npc(id: StringName, row: HBoxContainer) -> Control:
@@ -1049,7 +1145,7 @@ func _build_ui() -> void:
 	box.add_theme_constant_override("separation", 6)
 	bottom.add_child(box)
 	_title = _label(box, "", 20)
-	_info = _label(box, "", 14)
+	_info = _label(box, "", 15)
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.add_theme_color_override("font_color", UiSkin.MUTED)
 	_cards = HBoxContainer.new()
@@ -1172,8 +1268,16 @@ func _clear_arena() -> void:
 			child.queue_free()
 
 
+## Si van más cartas de las que entran a lo ancho, las angosta (el texto se achica solo).
+func _fit_cards(count: int) -> void:
+	var sep := float(_cards.get_theme_constant("separation"))
+	var room := (_cards.size.x - sep * (count - 1)) / count
+	_card_width = minf(CARD_WIDTH, room) if room > 0.0 else 0.0
+
+
 func _clear_cards() -> void:
 	_dismiss_tip()
+	_card_width = 0.0
 	for child in _cards.get_children():
 		_cards.remove_child(child)
 		child.queue_free()
@@ -1181,6 +1285,8 @@ func _clear_cards() -> void:
 
 func _add_card(icon: Texture2D, title: String, body: String, footer: String, accent: Color, callback: Callable, title_color := UiSkin.TEXT) -> ChoiceCard:
 	var card: ChoiceCard = CHOICE_CARD.instantiate()
+	if _card_width > 0.0:
+		card.custom_minimum_size.x = _card_width
 	_cards.add_child(card)
 	card.setup(_cards.get_child_count(), icon, title, body, footer, accent, title_color)
 	# Entrada escalonada: cada carta aparece un instante después de la anterior.
